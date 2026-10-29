@@ -1,4 +1,0 @@
-pyproj
-numpy
-pandas
-astropy
