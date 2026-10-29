@@ -235,6 +235,9 @@ class ConverterApp:
             self.messages.put(("done", (total, out_path)))
         except conv.ConverterError as e:
             self.messages.put(("error", str(e)))
+        except PermissionError:
+            self.messages.put(("error", f"Could not write {os.path.basename(out_path)}.\n"
+                                        "If it is open in Excel or another program, close it and try again."))
         except Exception as e:  # unexpected: show it, and print details for debugging
             traceback.print_exc()
             self.messages.put(("error", f"{type(e).__name__}: {e}"))
@@ -283,6 +286,12 @@ def _set_state(widgets, enabled):
 
 
 def main():
+    if sys.platform.startswith("win"):
+        try:  # sharp text on high-resolution Windows screens instead of blurry scaling
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except (AttributeError, OSError):
+            pass
     root = tk.Tk()
     try:
         ttk.Style(root).theme_use("clam" if sys.platform.startswith("linux") else None)

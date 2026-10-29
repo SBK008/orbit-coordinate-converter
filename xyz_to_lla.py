@@ -65,6 +65,7 @@ Usage (in your own code):
 """
 
 import argparse
+import os
 import sys
 from types import SimpleNamespace
 
@@ -376,7 +377,13 @@ def format_epochs(epochs, line_numbers, time_format):
         carry = frac >= scale
         whole = whole + carry
         frac = frac - carry * scale
-        text = (pd.Series(whole).astype(str) + "."
+        # Dates before 1858-11-17 have negative MJD. MJD -1 plus half a day is -0.5,
+        # which is written as "-0." + (1 - 0.5), so shift whole and frac for those.
+        neg = (whole < 0) & (frac > 0)
+        sign = np.where(whole < 0, "-", "")
+        mag = np.where(neg, -(whole + 1), np.abs(whole))
+        frac = np.where(neg, scale - frac, frac)
+        text = (pd.Series(sign) + pd.Series(mag).astype(str) + "."
                 + pd.Series(frac).astype(str).str.zfill(MJD_DECIMALS))
         return "epoch_mjd", text.to_numpy()
     raise ValueError(f"Unknown time format {time_format!r}. Use one of: {', '.join(TIME_FORMATS)}.")
@@ -509,6 +516,14 @@ def convert_oem(in_path, out_path, chunksize, fast=False, time_format="original"
     return total
 
 
+def check_paths(in_path, out_path):
+    """Refuse a missing input, and an output that would overwrite the input."""
+    if not os.path.isfile(in_path):
+        raise ConverterError(f"Input file not found: {in_path}")
+    if os.path.exists(out_path) and os.path.samefile(in_path, out_path):
+        raise ConverterError("The output file must be different from the input file.")
+
+
 def main():
     p = argparse.ArgumentParser(description="ECEF XYZ or CCSDS OEM to WGS84 lat/lon/alt (pyproj)")
     p.add_argument("input", help="input CSV with X, Y, Z columns in meters, or a CCSDS OEM text file")
@@ -537,12 +552,17 @@ def main():
         fmt = "oem" if a.input.lower().endswith(".oem") else "csv"
 
     try:
+        check_paths(a.input, a.output)
         if fmt == "csv":
             convert_csv(a.input, a.output, a.x, a.y, a.z, a.chunksize or CSV_CHUNKSIZE)
         else:
             convert_oem(a.input, a.output, a.chunksize or OEM_CHUNKSIZE, a.fast, a.time_format)
     except ConverterError as e:
         print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except PermissionError:
+        print(f"Error: could not write {a.output}. If it is open in Excel or another "
+              "program, close it and try again.", file=sys.stderr)
         sys.exit(1)
 
 
