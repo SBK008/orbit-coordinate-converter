@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "coordinate-converter"
+dynamic = ["version"]
+description = "Convert ECEF X/Y/Z and CCSDS OEM orbit files to WGS84 latitude, longitude and altitude"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "pandas",
+    "pyproj",
+    "astropy",
+]
+
+[project.scripts]
+# Command line: xyz-to-lla input.csv output.csv --separator space
+xyz-to-lla = "xyz_to_lla:main"
+
+[project.gui-scripts]
+# Desktop app: coordinate-converter
+coordinate-converter = "converter_gui:main"
+
+[tool.setuptools]
+py-modules = ["xyz_to_lla", "converter_gui", "updater"]
+
+[tool.setuptools.dynamic]
+# The version comes from __version__ in xyz_to_lla.py, so there is only one place to change it
+version = { attr = "xyz_to_lla.__version__" }

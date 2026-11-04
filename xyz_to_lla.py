@@ -77,6 +77,10 @@ Usage (in your own code):
     lat, lon, alt = xyz_to_lla(x_array, y_array, z_array)
 """
 
+# Version of the whole app. Bump this when you push an update: pip and the
+# GUI's "Check for updates" button both read it from here.
+__version__ = "1.1.0"
+
 import argparse
 import contextlib
 import os
@@ -644,6 +648,7 @@ def check_paths(in_path, out_path):
 
 def main():
     p = argparse.ArgumentParser(description="ECEF XYZ or CCSDS OEM to WGS84 lat/lon/alt (pyproj)")
+    p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     p.add_argument("input", help="input CSV with X, Y, Z columns in meters, or a CCSDS OEM text file")
     p.add_argument("output", help="output CSV (CSV input: original columns + lat, lon, alt; "
                                   "OEM input: object, epoch, time_system, ECEF meters, lat, lon, alt)")
