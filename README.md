@@ -16,6 +16,8 @@ Convert Earth-centered (ECEF) X/Y/Z coordinates and CCSDS OEM orbit files to WGS
 - **Safe writes:** a failed or stopped run never leaves a half-written output file.
 - **Built-in updates:** the app downloads only the changed files from GitHub.
 
+Standalone apps for Windows, macOS, and Linux are planned. See the [roadmap](ROADMAP.md) for what's coming next.
+
 ## Install
 
 **Option 1: pip (recommended)**
