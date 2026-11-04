@@ -6,19 +6,9 @@ on:
   push:
   pull_request:
   workflow_dispatch:     # adds a "Run workflow" button on the Actions tab
-
-name: Test
-
-on: [push, pull_request]   # keep whatever you already have here
-
 permissions:
   contents: read
 
-jobs:
-  test:
-    name: ${{ matrix.os }} / Python ${{ matrix.python }}
-    runs-on: ${{ matrix.os }}
-    
 jobs:
   test:
     name: ${{ matrix.os }} / Python ${{ matrix.python }}
