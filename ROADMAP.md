@@ -5,7 +5,8 @@ Where the Coordinate Converter is headed. Plans can change, and versions follow
 **minor** (1.**4**.0) for new features, **major** (**2**.0.0) for changes that
 break existing use.
 
-Have an idea or need? Open an issue.
+Each version below has a [milestone](https://github.com/SBK008/orbit-coordinate-converter/milestones) on GitHub with one issue per item,
+so you can follow progress there. Have an idea or need? [Open an issue](https://github.com/SBK008/orbit-coordinate-converter/issues/new).
 
 ## Done
 
@@ -23,6 +24,8 @@ Have an idea or need? Open an issue.
 
 ## 1.4.0: Supply chain and distribution
 
+[Track progress](https://github.com/SBK008/orbit-coordinate-converter/milestone/1)
+
 - [ ] Publish to PyPI with trusted publishing, so install is `pip install coordinate-converter`
 - [ ] Sign releases (for example with Sigstore) so the updater can verify who
       published them, not just that files arrived intact
@@ -31,6 +34,8 @@ Have an idea or need? Open an issue.
 - [ ] `CHANGELOG.md`
 
 ## 1.5.0: Standalone apps for Windows, macOS, and Linux
+
+[Track progress](https://github.com/SBK008/orbit-coordinate-converter/milestone/2)
 
 Download, double-click, done. No Python needed.
 
@@ -50,6 +55,8 @@ Download, double-click, done. No Python needed.
 - [ ] Download page in the README with one button per system
 
 ## 1.6.0: Features
+
+[Track progress](https://github.com/SBK008/orbit-coordinate-converter/milestone/3)
 
 - [ ] More output formats, in the app and with a `--output-format` option:
       - **KML:** open a ground track or flight path as a 3D line in Google Earth
