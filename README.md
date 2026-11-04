@@ -20,10 +20,10 @@ Convert Earth-centered (ECEF) X/Y/Z coordinates and CCSDS OEM orbit files to WGS
 
 **Option 1: pip (recommended)**
 
-Requires Python 3.9 or newer.
+Requires Python 3.11 or newer.
 
 ```
-pip install git+https://github.com/SBK008/orbit-coordinate-converter.git
+pip install git+https://github.com/YOUR_NAME/YOUR_REPO.git
 ```
 
 This installs the dependencies and two commands:
@@ -34,7 +34,7 @@ This installs the dependencies and two commands:
 To update:
 
 ```
-pip install --upgrade git+https://github.com/SBK008/orbit-coordinate-converter.git
+pip install --upgrade git+https://github.com/YOUR_NAME/YOUR_REPO.git
 ```
 
 **Option 2: download the zip**
