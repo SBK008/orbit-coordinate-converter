@@ -3,8 +3,8 @@
 Desktop window for the coordinate converter in xyz_to_lla.py.
 
 Pick an input file (CSV with ECEF X/Y/Z in meters, or a CCSDS OEM text file),
-choose how epochs are written (original, Gregorian, or MJD), pick where to save,
-and click Convert. The conversion runs in a background thread so the window stays
+choose how epochs are written (original, Gregorian, or MJD), choose comma or
+space separated output, pick where to save, and click Convert. The conversion runs in a background thread so the window stays
 responsive on large files.
 
 Run:
@@ -31,6 +31,11 @@ TIME_FORMAT_LABELS = {
     "mjd": "MJD (Modified Julian Date)",
 }
 
+SEPARATOR_LABELS = {
+    "comma": "Comma (.csv)",
+    "space": "Space (.txt, for NAIRAS / CCMC)",
+}
+
 
 class ConverterApp:
     def __init__(self, root):
@@ -51,14 +56,21 @@ class ConverterApp:
         self.xcol = tk.StringVar(value="x")
         self.ycol = tk.StringVar(value="y")
         self.zcol = tk.StringVar(value="z")
+        self.separator = tk.StringVar(value="comma")
+        self.header = tk.BooleanVar(value=True)
         self.status = tk.StringVar(value="Choose an input file to start.")
+        self._auto_output = True     # Save as still holds a name we suggested
+        self._setting_output = False
 
         self._build_files()
         self._build_options()
+        self._build_output_options()
         self._build_actions()
 
         self.input_path.trace_add("write", lambda *_: self._on_input_changed())
+        self.output_path.trace_add("write", lambda *_: self._on_output_edited())
         self.input_type.trace_add("write", lambda *_: self._update_option_states())
+        self.separator.trace_add("write", lambda *_: self._on_separator_changed())
         self._update_option_states()
 
     # ------------------------------------------------------------------ layout
@@ -116,9 +128,29 @@ class ConverterApp:
         self.oem_widgets = _all_children(self.oem_frame)
         self.csv_widgets = _all_children(self.csv_frame)
 
+    def _build_output_options(self):
+        box = ttk.LabelFrame(self.root, text="Output", padding=PAD)
+        box.grid(row=2, column=0, sticky="ew", padx=PAD, pady=(PAD, 0))
+        box.columnconfigure(1, weight=1)
+
+        ttk.Label(box, text="Separator").grid(row=0, column=0, sticky="w")
+        seps = ttk.Frame(box)
+        seps.grid(row=0, column=1, sticky="w", padx=PAD)
+        for value, text in SEPARATOR_LABELS.items():
+            ttk.Radiobutton(seps, text=text, value=value,
+                            variable=self.separator).pack(side="left", padx=(0, PAD))
+        ttk.Checkbutton(box, variable=self.header, text="Include column names as the first line"
+                        ).grid(row=1, column=1, sticky="w", padx=PAD, pady=(PAD // 2, 0))
+        self.space_hint = ttk.Label(
+            box, foreground="gray", wraplength=480,
+            text="For CCMC uploads, keep the file name to letters, numbers and underscores, "
+                 "with no spaces in the folder path.")
+        self.space_hint.grid(row=2, column=1, sticky="w", padx=PAD, pady=(PAD // 2, 0))
+        self.space_hint.grid_remove()
+
     def _build_actions(self):
         box = ttk.Frame(self.root, padding=PAD)
-        box.grid(row=2, column=0, sticky="ew")
+        box.grid(row=3, column=0, sticky="ew")
         box.columnconfigure(0, weight=1)
 
         self.progress = ttk.Progressbar(box, mode="indeterminate")
@@ -146,12 +178,39 @@ class ConverterApp:
         _set_state(self.oem_widgets, is_oem)
         _set_state(self.csv_widgets, not is_oem)
 
+    def _output_ext(self):
+        return ".txt" if self.separator.get() == "space" else ".csv"
+
+    def _set_output(self, path, auto):
+        self._setting_output = True
+        try:
+            self.output_path.set(path)
+        finally:
+            self._setting_output = False
+        self._auto_output = auto
+
+    def _on_output_edited(self):
+        if not self._setting_output:
+            self._auto_output = not self.output_path.get().strip()
+
     def _on_input_changed(self):
         self._update_option_states()
         path = self.input_path.get().strip()
-        if path and not self.output_path.get().strip():
+        # Keep updating the suggestion while the user types, until they pick their own name
+        if path and self._auto_output:
             stem, _ = os.path.splitext(path)
-            self.output_path.set(stem + "_lla.csv")
+            self._set_output(stem + "_lla" + self._output_ext(), auto=True)
+
+    def _on_separator_changed(self):
+        if self.separator.get() == "space":
+            self.space_hint.grid()
+        else:
+            self.space_hint.grid_remove()
+        # Swap a .csv/.txt ending to match, but leave any other ending alone
+        out = self.output_path.get().strip()
+        stem, ext = os.path.splitext(out)
+        if out and ext.lower() in (".csv", ".txt") and ext.lower() != self._output_ext():
+            self._set_output(stem + self._output_ext(), auto=self._auto_output)
 
     def _browse_input(self):
         path = filedialog.askopenfilename(
@@ -159,18 +218,22 @@ class ConverterApp:
             filetypes=[("OEM or CSV", "*.oem *.txt *.csv"), ("OEM files", "*.oem *.txt"),
                        ("CSV files", "*.csv"), ("All files", "*.*")])
         if path:
-            self.output_path.set("")  # suggest a fresh name next to the new input
+            self._set_output("", auto=True)  # suggest a fresh name next to the new input
             self.input_path.set(path)
 
     def _browse_output(self):
         start = self.output_path.get().strip() or self.input_path.get().strip()
+        ext = self._output_ext()
+        types = [("Text files", "*.txt"), ("CSV files", "*.csv")]
+        if ext == ".csv":
+            types.reverse()
         path = filedialog.asksaveasfilename(
-            title="Save output as", defaultextension=".csv",
+            title="Save output as", defaultextension=ext,
             initialdir=os.path.dirname(start) or None,
-            initialfile=os.path.basename(start) if start.endswith(".csv") else None,
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
+            initialfile=os.path.basename(start) if start.lower().endswith((".csv", ".txt")) else None,
+            filetypes=types + [("All files", "*.*")])
         if path:
-            self.output_path.set(path)
+            self._set_output(path, auto=False)
 
     def _open_folder(self):
         if not self.last_output:
@@ -207,17 +270,19 @@ class ConverterApp:
             return
 
         kind = self._resolved_type()
+        out_opts = dict(separator=self.separator.get(), header=self.header.get())
         if kind == "csv":
             cols = [self.xcol.get().strip(), self.ycol.get().strip(), self.zcol.get().strip()]
             if not all(cols):
                 messagebox.showwarning(APP_TITLE, "Fill in the X, Y and Z column names.")
                 return
             job = lambda report: conv.convert_csv(in_path, out_path, *cols,
-                                                  conv.CSV_CHUNKSIZE, progress=report)
+                                                  conv.CSV_CHUNKSIZE, progress=report,
+                                                  **out_opts)
         else:
             fast, time_format = self.fast.get(), self.time_format.get()
             job = lambda report: conv.convert_oem(in_path, out_path, conv.OEM_CHUNKSIZE, fast,
-                                                  time_format, progress=report)
+                                                  time_format, progress=report, **out_opts)
 
         self.convert_button.configure(state="disabled")
         self.open_button.configure(state="disabled")
@@ -238,6 +303,8 @@ class ConverterApp:
         except PermissionError:
             self.messages.put(("error", f"Could not write {os.path.basename(out_path)}.\n"
                                         "If it is open in Excel or another program, close it and try again."))
+        except FileNotFoundError:
+            self.messages.put(("error", f"The folder for {os.path.basename(out_path)} does not exist."))
         except Exception as e:  # unexpected: show it, and print details for debugging
             traceback.print_exc()
             self.messages.put(("error", f"{type(e).__name__}: {e}"))

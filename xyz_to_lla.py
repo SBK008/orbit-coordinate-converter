@@ -59,12 +59,26 @@ Usage (OEM file):
     current tables when it can; without internet access it falls back to the
     tables bundled with astropy and prints a warning.
 
+Output options (CSV and OEM):
+    --separator comma   comma-separated output (default)
+    --separator space   space-separated output, e.g. for CCMC Runs-on-Request uploads
+    --no-header         leave out the column-name line at the top
+
+    With --separator space, empty values are written as NaN so every row keeps
+    the same number of columns, and any text value that contains a space (such
+    as an object name) is wrapped in double quotes.
+
+    The output is written to a temporary .part file next to the output and only
+    renamed to the final name when the conversion finishes, so a failed or
+    interrupted run never leaves a half-written file that looks complete.
+
 Usage (in your own code):
     from xyz_to_lla import xyz_to_lla
     lat, lon, alt = xyz_to_lla(x_array, y_array, z_array)
 """
 
 import argparse
+import contextlib
 import os
 import sys
 from types import SimpleNamespace
@@ -100,25 +114,114 @@ def _report(progress, message):
         print(message, file=sys.stderr)
 
 
-def convert_csv(in_path, out_path, xcol, ycol, zcol, chunksize, progress=None):
+# ---------------------------------------------------------------------------
+# Output
+# ---------------------------------------------------------------------------
+
+SEPARATORS = {"comma": ",", "space": " "}
+FLOAT_FORMAT = "%.9f"
+
+
+def _separator(name):
+    if name not in SEPARATORS:
+        raise ValueError(f"Unknown separator {name!r}. Use one of: {', '.join(SEPARATORS)}.")
+    return SEPARATORS[name]
+
+
+@contextlib.contextmanager
+def _output_file(out_path):
+    """
+    Open a temporary file next to out_path for writing. On success it replaces
+    out_path; on any error (or Ctrl+C) it is deleted and out_path is left alone.
+    """
+    tmp = out_path + ".part"
+    f = open(tmp, "w", newline="", encoding="utf-8")
+    try:
+        with f:
+            yield f
+        os.replace(tmp, out_path)
+    except BaseException:
+        f.close()
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
+        raise
+
+
+def _write_chunk(df, f, sep, header):
+    # Empty fields would shift columns in a space-separated file, so write NaN there
+    df.to_csv(f, sep=sep, header=header, index=False, float_format=FLOAT_FORMAT,
+              na_rep="" if sep == "," else "NaN", lineterminator="\n")
+
+
+# ---------------------------------------------------------------------------
+# CSV input
+# ---------------------------------------------------------------------------
+
+def _resolve_column(name, columns):
+    """Find a column by exact name, then ignoring spaces around it and letter case."""
+    if name in columns:
+        return name
+    matches = [c for c in columns if str(c).strip().lower() == name.strip().lower()]
+    return matches[0] if len(matches) == 1 else None
+
+
+def convert_csv(in_path, out_path, xcol, ycol, zcol, chunksize, progress=None,
+                separator="comma", header=True):
+    sep = _separator(separator)
     total = 0
-    first = True
-    for chunk in pd.read_csv(in_path, chunksize=chunksize):
-        missing = [c for c in (xcol, ycol, zcol) if c not in chunk.columns]
-        if missing:
-            raise ConverterError(f"Column(s) {', '.join(missing)} not found in {in_path}. "
-                                 f"Columns in the file: {', '.join(map(str, chunk.columns))}")
-        lat, lon, alt = xyz_to_lla(chunk[xcol].values, chunk[ycol].values, chunk[zcol].values)
-        chunk["lat"] = lat
-        chunk["lon"] = lon
-        chunk["alt"] = alt
-        chunk.to_csv(out_path, mode="w" if first else "a", header=first, index=False,
-                     float_format="%.9f")
-        first = False
-        total += len(chunk)
-        _report(progress, f"Converted {total:,} points")
+    cols = None
+    # Every column is read as text so the original columns are written back exactly
+    # as they were. Only X, Y and Z are turned into numbers.
+    read_opts = dict(dtype=str, keep_default_na=False, na_values=[""], encoding="utf-8-sig")
+    try:
+        with _output_file(out_path) as f, \
+                pd.read_csv(in_path, chunksize=chunksize, **read_opts) as reader:
+            for chunk in reader:
+                if cols is None:
+                    cols = _find_xyz(chunk.columns, (xcol, ycol, zcol), in_path)
+                nums = []
+                for c in cols:
+                    v = pd.to_numeric(chunk[c], errors="coerce").to_numpy(dtype=np.float64)
+                    bad = ~np.isfinite(v)
+                    if bad.any():
+                        i = int(np.argmax(bad))
+                        raise ConverterError(
+                            f"Data row {total + i + 1:,}: column {c} has {chunk[c].iloc[i]!r}, "
+                            "which is not a number. Every row needs numeric X, Y and Z values.")
+                    nums.append(v)
+                lat, lon, alt = xyz_to_lla(*nums)
+                chunk["lat"] = lat
+                chunk["lon"] = lon
+                chunk["alt"] = alt
+                _write_chunk(chunk, f, sep, header and total == 0)
+                total += len(chunk)
+                _report(progress, f"Converted {total:,} points")
+            if cols is None:
+                # Header only, no data rows: still write the header
+                columns = pd.read_csv(in_path, nrows=0, **read_opts).columns
+                _find_xyz(columns, (xcol, ycol, zcol), in_path)
+                empty = pd.DataFrame(columns=[*columns, "lat", "lon", "alt"])
+                _write_chunk(empty, f, sep, header)
+    except pd.errors.EmptyDataError:
+        raise ConverterError(f"{in_path} is empty.")
+    except pd.errors.ParserError as e:
+        raise ConverterError(f"Could not read {in_path} as a CSV file: {e}")
+    except UnicodeDecodeError:
+        raise ConverterError(f"{in_path} is not a text CSV file (it may be an Excel .xlsx "
+                             "file; save it as CSV first).")
     _report(progress, f"Done. Wrote {total:,} points to {out_path}")
     return total
+
+
+def _find_xyz(columns, names, in_path):
+    found = [_resolve_column(n, columns) for n in names]
+    missing = [n for n, c in zip(names, found) if c is None]
+    if missing:
+        raise ConverterError(f"Column(s) {', '.join(missing)} not found in {in_path}. "
+                             f"Columns in the file: {', '.join(map(str, columns))}")
+    if len(set(found)) < 3:
+        raise ConverterError("X, Y and Z must be three different columns.")
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -482,36 +585,51 @@ def _inertial_to_itrs(frame, x, y, z, times, fast=False):
     return itrs.x.to_value(ap.u.m), itrs.y.to_value(ap.u.m), itrs.z.to_value(ap.u.m)
 
 
-def convert_oem(in_path, out_path, chunksize, fast=False, time_format="original", progress=None):
+def _rotate_to_earth_fixed(meta, epochs, line_numbers, x, y, z, fast):
+    """Rotate a space-fixed batch to ITRS, turning astropy failures into readable errors."""
+    try:
+        times = _parse_epochs(epochs, meta["time_system"])
+        return _inertial_to_itrs(meta["frame"], x, y, z, times, fast)
+    except OEMError:
+        raise
+    except Exception as e:
+        # Usually IERS Earth orientation data that does not cover these dates
+        raise OEMError(f"Could not rotate {meta['frame']} positions to Earth-fixed for the "
+                       f"lines starting at line {line_numbers[0]} (epoch {epochs[0]}).\n"
+                       f"{type(e).__name__}: {e}\n"
+                       "If this mentions IERS, connect to the internet so astropy can download "
+                       "current Earth orientation tables, then try again.")
+
+
+def convert_oem(in_path, out_path, chunksize, fast=False, time_format="original", progress=None,
+                separator="comma", header=True):
     if time_format not in TIME_FORMATS:
         raise ValueError(f"Unknown time format {time_format!r}. Use one of: {', '.join(TIME_FORMATS)}.")
+    sep = _separator(separator)
     columns = [("epoch_mjd" if c == "epoch" and time_format == "mjd" else c) for c in OEM_COLUMNS]
     total = 0
     segments = 0
-    first = True
     last_meta = None
-    for meta, line_numbers, epochs, x_km, y_km, z_km in _iter_oem_batches(in_path, chunksize):
-        if meta is not last_meta:
-            segments += 1
-            last_meta = meta
-        _check_epochs(epochs, line_numbers)
-        x, y, z = x_km * 1000.0, y_km * 1000.0, z_km * 1000.0
-        if meta["frame"] in INERTIAL_FRAMES:
-            times = _parse_epochs(epochs, meta["time_system"])
-            x, y, z = _inertial_to_itrs(meta["frame"], x, y, z, times, fast)
-        lat, lon, alt = xyz_to_lla(x, y, z)
-        epoch_col, epoch_values = format_epochs(epochs, line_numbers, time_format)
-        df = pd.DataFrame({"object": meta["object"], epoch_col: epoch_values,
-                           "time_system": meta["time_system"],
-                           "x_ecef_m": x, "y_ecef_m": y, "z_ecef_m": z,
-                           "lat": lat, "lon": lon, "alt": alt}, columns=columns)
-        df.to_csv(out_path, mode="w" if first else "a", header=first, index=False,
-                  float_format="%.9f")
-        first = False
-        total += len(df)
-        _report(progress, f"Converted {total:,} points (segment {segments}, {meta['frame']})")
-    if first:
-        pd.DataFrame(columns=columns).to_csv(out_path, index=False)
+    with _output_file(out_path) as f:
+        for meta, line_numbers, epochs, x_km, y_km, z_km in _iter_oem_batches(in_path, chunksize):
+            if meta is not last_meta:
+                segments += 1
+                last_meta = meta
+            _check_epochs(epochs, line_numbers)
+            x, y, z = x_km * 1000.0, y_km * 1000.0, z_km * 1000.0
+            if meta["frame"] in INERTIAL_FRAMES:
+                x, y, z = _rotate_to_earth_fixed(meta, epochs, line_numbers, x, y, z, fast)
+            lat, lon, alt = xyz_to_lla(x, y, z)
+            epoch_col, epoch_values = format_epochs(epochs, line_numbers, time_format)
+            df = pd.DataFrame({"object": meta["object"] or np.nan, epoch_col: epoch_values,
+                               "time_system": meta["time_system"],
+                               "x_ecef_m": x, "y_ecef_m": y, "z_ecef_m": z,
+                               "lat": lat, "lon": lon, "alt": alt}, columns=columns)
+            _write_chunk(df, f, sep, header and total == 0)
+            total += len(df)
+            _report(progress, f"Converted {total:,} points (segment {segments}, {meta['frame']})")
+        if total == 0:
+            _write_chunk(pd.DataFrame(columns=columns), f, sep, header)
     _report(progress, f"Done. Wrote {total:,} points from {segments} segment(s) to {out_path}")
     return total
 
@@ -535,8 +653,12 @@ def main():
     p.add_argument("--x", default="x", help="X column name (default: x)")
     p.add_argument("--y", default="y", help="Y column name (default: y)")
     p.add_argument("--z", default="z", help="Z column name (default: z)")
-    p.add_argument("--chunksize", type=int, default=None,
+    p.add_argument("--chunksize", type=_positive_int, default=None,
                    help="rows per chunk (default: 1,000,000 for CSV, 200,000 for OEM)")
+    p.add_argument("--separator", choices=list(SEPARATORS), default="comma",
+                   help="column separator in the output: comma (default) or space")
+    p.add_argument("--no-header", action="store_true",
+                   help="do not write the column-name line at the top of the output")
     p.add_argument("--fast", action="store_true",
                    help="OEM in a space-fixed frame only: interpolate precession-nutation on a "
                         f"{FAST_GRID_SECONDS:g} s grid instead of computing it at every line. "
@@ -551,12 +673,14 @@ def main():
     if fmt == "auto":
         fmt = "oem" if a.input.lower().endswith(".oem") else "csv"
 
+    out_opts = dict(separator=a.separator, header=not a.no_header)
     try:
         check_paths(a.input, a.output)
         if fmt == "csv":
-            convert_csv(a.input, a.output, a.x, a.y, a.z, a.chunksize or CSV_CHUNKSIZE)
+            convert_csv(a.input, a.output, a.x, a.y, a.z, a.chunksize or CSV_CHUNKSIZE, **out_opts)
         else:
-            convert_oem(a.input, a.output, a.chunksize or OEM_CHUNKSIZE, a.fast, a.time_format)
+            convert_oem(a.input, a.output, a.chunksize or OEM_CHUNKSIZE, a.fast, a.time_format,
+                        **out_opts)
     except ConverterError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
@@ -564,6 +688,22 @@ def main():
         print(f"Error: could not write {a.output}. If it is open in Excel or another "
               "program, close it and try again.", file=sys.stderr)
         sys.exit(1)
+    except FileNotFoundError:
+        print(f"Error: the folder for {a.output} does not exist.", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("Stopped. No output file was written.", file=sys.stderr)
+        sys.exit(130)
+
+
+def _positive_int(text):
+    try:
+        n = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number")
+    if n < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return n
 
 
 if __name__ == "__main__":
