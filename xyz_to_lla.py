@@ -86,7 +86,7 @@ Usage (in your own code):
 
 # Version of the whole app. Bump this when you push an update: pip and the
 # GUI's "Check for updates" button both read it from here.
-__version__ = "1.2.2"
+__version__ = "1.3.0"
 
 import argparse
 import contextlib

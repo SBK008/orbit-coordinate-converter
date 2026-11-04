@@ -17,13 +17,16 @@ Include what you found, how to reproduce it, and what an attacker could do with 
 
 The in-app updater downloads new code, so here is exactly what it trusts and checks:
 
-- **Source:** files are downloaded only over HTTPS from `raw.githubusercontent.com`, from this repository's `main` branch. Certificate verification is never turned off.
-- **Fixed file list:** only the `.py` files named in `updater.py` are downloaded. Nothing else is fetched or run.
-- **All or nothing:** every file must download and be valid Python before any file is replaced. Old versions are kept as `.bak` files.
+- **Releases only:** it asks GitHub for the latest published release. Drafts, pre-releases, and untagged changes on `main` are never installed.
+- **Source:** files are downloaded only over HTTPS from `api.github.com`, `raw.githubusercontent.com`, and the release's own download link. Certificate verification is never turned off.
+- **Fixed file list:** only the `.py` files named in `updater.py` are downloaded, exactly as they were at the release tag. Nothing else is fetched or run.
+- **Checksums:** every file must match the SHA-256 hash in the release's `SHA256SUMS` file, which the release workflow generates from the tagged code.
+- **Version check:** the release tag must look like a version number (`v1.3.0`) and must match `__version__` inside the downloaded code.
+- **All or nothing:** every file must download, match its checksum, and be valid Python before any file is replaced. Old versions are kept as `.bak` files.
 - **No downgrades:** an update is installed only if its version number is higher than the one running.
 - **pip installs are left alone:** copies installed with pip are never overwritten. pip handles those updates.
 
-**Limitation:** updates are not cryptographically signed. The updater trusts whatever is on this repository's `main` branch, so its security depends on the security of the maintainer's GitHub account. If you need stronger guarantees, install a specific release with pip and review changes before upgrading.
+**Limitation:** the checksums come from the same GitHub repository as the code. They catch damaged, partial, or swapped downloads and make sure you get exactly the files that were released, but they are not a signature. Someone who took over the maintainer's GitHub account could publish a malicious release with matching checksums. If you need stronger guarantees, install a specific release with pip and review changes before upgrading.
 
 ## Scope
 

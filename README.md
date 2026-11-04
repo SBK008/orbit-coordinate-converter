@@ -14,7 +14,7 @@ Convert Earth-centered (ECEF) X/Y/Z coordinates and CCSDS OEM orbit files to WGS
 - **NAIRAS trajectory export:** OEM files can be saved in the exact trajectory format used by NASA's NAIRAS radiation model on CCMC Runs-on-Request.
 - **Large files:** processed in chunks, so memory stays flat. Tested on a 1 GB, 20 million row CSV.
 - **Safe writes:** a failed or stopped run never leaves a half-written output file.
-- **Built-in updates:** the app downloads only the changed files from GitHub.
+- **Built-in updates:** the app installs only published releases, and checks every downloaded file against the release's SHA-256 checksums.
 
 ## Install
 
@@ -49,7 +49,7 @@ pip install --upgrade git+https://github.com/SBK008/orbit-coordinate-converter.g
    python converter_gui.py
    ```
 
-To update, click **Check for updates** in the app. It downloads only the files that changed.
+To update, click **Check for updates** in the app. It installs the latest release and checks each file against its checksum before replacing anything.
 
 ## Desktop app
 
@@ -162,5 +162,6 @@ GitHub Actions runs everything on Linux, macOS, and Windows on every push. The b
 3. Open a pull request into `main` and wait for the tests to pass.
 4. Merge the pull request.
 5. Go to **Releases > Draft a new release**, create a tag named after the version (like `v1.3.0`) on `main`, list what changed, and publish.
+6. The **release** workflow checks that the tag matches `__version__` and attaches `SHA256SUMS` to the release. The app's update button won't install a release until that file is there, so check the Actions tab for a green check.
 
-The version number is how pip and the app's update button know there is something new. If it isn't raised, users won't be told about the update.
+The release is how the app's update button knows there is something new. Code merged into `main` without a release is never sent to users.

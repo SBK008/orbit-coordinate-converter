@@ -7,7 +7,8 @@ choose how epochs are written (original, Gregorian, or MJD), choose comma or
 space separated output, pick where to save, and click Convert. The conversion runs in a background thread so the window stays
 responsive on large files.
 
-"Check for updates" downloads only the changed .py files from GitHub (see updater.py).
+"Check for updates" installs the latest GitHub release, checking each file against
+the release's SHA256SUMS (see updater.py).
 
 Run:
     python converter_gui.py
@@ -467,11 +468,11 @@ class ConverterApp:
     def _offer_update(self, current, latest):
         if updater.installed_with_pip():
             self.root.clipboard_clear()
-            self.root.clipboard_append(updater.pip_upgrade_command())
+            self.root.clipboard_append(updater.pip_upgrade_command(latest))
             messagebox.showinfo(APP_TITLE, f"Version {latest} is available (you have {current}).\n\n"
                                            "This copy was installed with pip. Close the app and run "
                                            "this command (it is copied to your clipboard):\n\n"
-                                           f"{updater.pip_upgrade_command()}")
+                                           f"{updater.pip_upgrade_command(latest)}")
             return
         if self._converting():
             messagebox.showinfo(APP_TITLE, f"Version {latest} is available. Install it after the "
