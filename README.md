@@ -1,9 +1,12 @@
 # Coordinate Converter
 
+[![tests](https://github.com/YOUR_NAME/YOUR_REPO/actions/workflows/tests.yml/badge.svg)](https://github.com/YOUR_NAME/YOUR_REPO/actions/workflows/tests.yml)
+
 Convert Earth-centered (ECEF) X/Y/Z coordinates and CCSDS OEM orbit files to WGS84 latitude, longitude, and altitude. Includes a desktop app and a command-line tool, and handles files with millions of points.
 
 ## Features
 
+- **Accurate at any altitude:** within a micrometer from the surface out past GEO.
 - **CSV input:** any CSV with X, Y, Z columns in meters. Your other columns are kept exactly as they were.
 - **CCSDS OEM input:** text (KVN) orbit files in Earth-fixed or space-fixed frames. Space-fixed positions are rotated to Earth-fixed at each epoch.
 - **Epoch output** as written in the file, as Gregorian calendar dates, or as Modified Julian Dates.
@@ -140,6 +143,17 @@ from xyz_to_lla import xyz_to_lla
 
 lat, lon, alt = xyz_to_lla(x_array, y_array, z_array)
 ```
+
+## Running the tests
+
+```
+pip install ".[test]"
+pytest
+```
+
+The tests cover the conversion math, CSV and OEM input, every output option, the NAIRAS format (checked byte for byte against an excerpt of NASA's RaD-X trajectory file in `tests/data`), safe writes, and the updater. The desktop app tests need a screen, so they only run when `RUN_GUI_TESTS=1` is set.
+
+GitHub Actions runs everything on Linux, macOS, and Windows on every push. The badge at the top shows the latest result.
 
 ## Publishing an update (maintainer notes)
 

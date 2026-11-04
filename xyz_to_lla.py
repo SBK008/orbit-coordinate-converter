@@ -86,7 +86,7 @@ Usage (in your own code):
 
 # Version of the whole app. Bump this when you push an update: pip and the
 # GUI's "Check for updates" button both read it from here.
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 
 import argparse
 import contextlib
@@ -103,14 +103,30 @@ from pyproj import Transformer
 # always_xy=True means output order is (lon, lat, alt)
 _TRANSFORMER = Transformer.from_crs("EPSG:4978", "EPSG:4979", always_xy=True)
 
+_WGS84_A = 6378137.0                      # equatorial radius (m)
+_WGS84_F = 1 / 298.257223563              # flattening
+_WGS84_E2 = _WGS84_F * (2 - _WGS84_F)     # first eccentricity squared
+
 
 def xyz_to_lla(x, y, z):
     """Convert ECEF arrays to (lat, lon, alt). Accepts scalars, lists, or numpy arrays."""
     x = np.asarray(x, dtype=np.float64)
     y = np.asarray(y, dtype=np.float64)
     z = np.asarray(z, dtype=np.float64)
-    lon, lat, alt = _TRANSFORMER.transform(x, y, z)
-    return lat, lon, alt
+    lon, lat, _ = _TRANSFORMER.transform(x, y, z)
+    # pyproj's inverse is a fast approximation that is exact near the surface but drifts
+    # with altitude (about 0.3 m in altitude at GEO). Starting from its answer, two steps
+    # of the standard fixed-point iteration bring every altitude to full double precision.
+    p = np.hypot(x, y)
+    phi = np.radians(lat)
+    for _ in range(2):
+        s = np.sin(phi)
+        n = _WGS84_A / np.sqrt(1 - _WGS84_E2 * s * s)
+        phi = np.arctan2(z + _WGS84_E2 * n * s, p)
+    s, c = np.sin(phi), np.cos(phi)
+    # This form of the height stays accurate at the poles, where p is near 0
+    alt = p * c + z * s - _WGS84_A * np.sqrt(1 - _WGS84_E2 * s * s)
+    return np.degrees(phi), lon, alt
 
 
 class ConverterError(Exception):
@@ -422,6 +438,8 @@ def _check_epochs(epochs, line_numbers):
         i = int(np.argmin(ok))
         raise OEMError(f"Line {line_numbers[i]}: epoch {epochs[i]} is not in a supported format. "
                        "Use YYYY-MM-DDThh:mm:ss.sss or YYYY-DDDThh:mm:ss.sss.")
+    # Also refuse impossible dates and times (2026-02-30, 25:00), whatever the output format
+    _split_epochs(epochs, line_numbers)
 
 
 def _split_epochs(epochs, line_numbers):

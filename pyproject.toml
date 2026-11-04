@@ -14,6 +14,9 @@ dependencies = [
     "astropy",
 ]
 
+[project.optional-dependencies]
+test = ["pytest"]
+
 [project.scripts]
 # Command line: xyz-to-lla input.csv output.csv --separator space
 xyz-to-lla = "xyz_to_lla:main"
@@ -28,3 +31,6 @@ py-modules = ["xyz_to_lla", "converter_gui", "updater"]
 [tool.setuptools.dynamic]
 # The version comes from __version__ in xyz_to_lla.py, so there is only one place to change it
 version = { attr = "xyz_to_lla.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
