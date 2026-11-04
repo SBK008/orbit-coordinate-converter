@@ -92,6 +92,7 @@ import argparse
 import contextlib
 import os
 import sys
+import tempfile
 from types import SimpleNamespace
 
 import numpy as np
@@ -161,11 +162,18 @@ def _output_file(out_path):
     Open a temporary file next to out_path for writing. On success it replaces
     out_path; on any error (or Ctrl+C) it is deleted and out_path is left alone.
     """
-    tmp = out_path + ".part"
-    f = open(tmp, "w", newline="", encoding="utf-8")
+    # mkstemp makes a new file with a random name and never follows an existing
+    # file or link, so nothing outside out_path can be overwritten
+    folder, name = os.path.split(os.path.abspath(out_path))
+    fd, tmp = tempfile.mkstemp(dir=folder, prefix=name + ".", suffix=".part")
+    f = os.fdopen(fd, "w", newline="", encoding="utf-8")
     try:
         with f:
             yield f
+        # mkstemp files are private (0600); give the output normal permissions
+        umask = os.umask(0)
+        os.umask(umask)
+        os.chmod(tmp, 0o666 & ~umask)
         os.replace(tmp, out_path)
     except BaseException:
         f.close()

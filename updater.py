@@ -10,7 +10,9 @@ How it works:
        that tag. Untagged work on the main branch is never installed.
     3. Check every file against SHA256SUMS, check that it is valid Python, and
        check that xyz_to_lla.py says the same version as the tag.
-    4. Only then write them next to the running copy, keeping the old ones as
+    4. Downloads are HTTPS only, to GitHub's own hosts (redirects included),
+       and capped at MAX_DOWNLOAD_BYTES.
+    5. Only then write them next to the running copy, keeping the old ones as
        .bak files, so a failed or tampered download never leaves a
        half-updated app.
 
@@ -29,6 +31,7 @@ import re
 import ssl
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 # ---- Fill these in with your GitHub details ---------------------------------
@@ -45,6 +48,17 @@ UPDATE_FILES = ["xyz_to_lla.py", "converter_gui.py", "updater.py"]
 CHECKSUM_ASSET = "SHA256SUMS"
 
 TIMEOUT_SECONDS = 15
+# The three app files are well under 1 MB. Anything far bigger is refused.
+MAX_DOWNLOAD_BYTES = 5 * 1024 * 1024
+# The only places the updater downloads from, including where GitHub redirects
+# release downloads to. Everything must be HTTPS.
+ALLOWED_HOSTS = {
+    "api.github.com",
+    "raw.githubusercontent.com",
+    "github.com",
+    "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+}
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 _VERSION_RE = re.compile(r'^__version__\s*=\s*["\']([^"\']+)["\']', re.MULTILINE)
@@ -102,14 +116,43 @@ def _version_in(source):
     return m.group(1)
 
 
+def check_url(url):
+    """Refuse anything that is not HTTPS to one of GitHub's own hosts."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme != "https" or (parts.hostname or "").lower() not in ALLOWED_HOSTS:
+        raise UpdateError(f"Refused to download from {url}: updates only come over HTTPS "
+                          "from GitHub.")
+
+
+class _HTTPSOnlyRedirects(urllib.request.HTTPRedirectHandler):
+    """Follow a redirect only if its target passes check_url."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        check_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(_HTTPSOnlyRedirects)
+
+
+def read_limited(response, what):
+    """Read a response, refusing anything over MAX_DOWNLOAD_BYTES."""
+    data = response.read(MAX_DOWNLOAD_BYTES + 1)
+    if len(data) > MAX_DOWNLOAD_BYTES:
+        raise UpdateError(f"{what} on GitHub is much larger than expected, so it was not "
+                          "downloaded.")
+    return data
+
+
 def _fetch(url, what, accept=None):
     """Download url and return its bytes. what names it in error messages."""
+    check_url(url)
     req = urllib.request.Request(url, headers={"User-Agent": "coordinate-converter-updater"})
     if accept:
         req.add_header("Accept", accept)
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as r:
-            return r.read()
+        with _OPENER.open(req, timeout=TIMEOUT_SECONDS) as r:
+            return read_limited(r, what)
     except urllib.error.HTTPError as e:
         if e.code == 404:
             raise UpdateError(f"{what} was not found on GitHub ({url}).")
@@ -218,6 +261,8 @@ def install(current_version):
         except SyntaxError as e:
             raise UpdateError(f"The new {name} has an error (line {e.lineno}), so nothing "
                               "was changed.")
+        except ValueError:  # Python 3.11 raises this for null bytes in source
+            raise UpdateError(f"The new {name} is not valid Python, so nothing was changed.")
         files[name] = data
 
     file_version = _version_in(files["xyz_to_lla.py"].decode("utf-8"))

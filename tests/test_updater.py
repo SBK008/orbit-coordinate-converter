@@ -1,6 +1,7 @@
 """The in-app updater, with GitHub replaced by a fake so no network is used."""
 
 import hashlib
+import io
 import json
 import os
 from urllib.parse import urlparse
@@ -164,6 +165,56 @@ def test_tag_must_match_version_in_code(github):
     with pytest.raises(updater.UpdateError, match="does not match its tag"):
         updater.install("1.2.0")
     assert_unchanged(github.app)
+
+
+def test_null_byte_in_file_changes_nothing(github):
+    github.files["converter_gui.py"] = b"x = 1\x00\n"
+    github.sums = sums_for(github.files)
+    with pytest.raises(updater.UpdateError, match="nothing was changed"):
+        updater.install("1.2.0")
+    assert_unchanged(github.app)
+
+
+@pytest.mark.parametrize("url", [
+    "https://api.github.com/repos/a/b/releases/latest",
+    "https://raw.githubusercontent.com/a/b/v1.3.0/updater.py",
+    "https://github.com/a/b/releases/download/v1.3.0/SHA256SUMS",
+    "https://release-assets.githubusercontent.com/some/asset",
+])
+def test_github_https_urls_are_allowed(url):
+    updater.check_url(url)
+
+
+@pytest.mark.parametrize("url", [
+    "http://raw.githubusercontent.com/a/b/v1.3.0/updater.py",   # not HTTPS
+    "file:///etc/passwd",
+    "ftp://github.com/x",
+    "https://evil.example.com/SHA256SUMS",
+    "https://github.com.evil.example.com/x",
+    "https://raw.githubusercontent.com@evil.example.com/x",
+])
+def test_other_urls_are_refused(url):
+    with pytest.raises(updater.UpdateError, match="Refused"):
+        updater.check_url(url)
+
+
+def test_real_fetch_checks_the_url_before_connecting():
+    with pytest.raises(updater.UpdateError, match="Refused"):
+        updater._fetch("file:///etc/passwd", "test")
+
+
+def test_redirect_away_from_github_is_refused():
+    handler = updater._HTTPSOnlyRedirects()
+    req = updater.urllib.request.Request("https://github.com/a/b/releases/download/v1/SHA256SUMS")
+    with pytest.raises(updater.UpdateError, match="Refused"):
+        handler.redirect_request(req, None, 302, "Found", {}, "http://evil.example.com/x")
+
+
+def test_oversized_download_is_refused(monkeypatch):
+    monkeypatch.setattr(updater, "MAX_DOWNLOAD_BYTES", 10)
+    assert updater.read_limited(io.BytesIO(b"0123456789"), "f") == b"0123456789"
+    with pytest.raises(updater.UpdateError, match="larger than expected"):
+        updater.read_limited(io.BytesIO(b"0123456789!"), "f")
 
 
 @pytest.mark.parametrize("tag", ["main", "v1.3.0/../../evil", "latest", "v1"])

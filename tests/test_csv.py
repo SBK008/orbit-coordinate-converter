@@ -132,6 +132,19 @@ def test_failed_run_keeps_old_output_and_leaves_no_temp_file(write, tmp_path):
     assert sorted(os.listdir(tmp_path)) == ["in.csv", "out.csv"]
 
 
+@pytest.mark.skipif(not hasattr(os, "symlink") or os.name == "nt",
+                    reason="creating symlinks needs extra rights on Windows")
+def test_temp_file_never_follows_a_planted_link(write, tmp_path):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("keep me\n")
+    out = tmp_path / "out.csv"
+    os.symlink(victim, str(out) + ".part")
+    src = write("in.csv", "x,y,z\n6378137,0,0\n")
+    conv.convert_csv(src, str(out), "x", "y", "z", 10, progress=lambda m: None)
+    assert victim.read_text() == "keep me\n"
+    assert "lat" in out.read_text()
+
+
 def test_check_paths(write):
     src = write("in.csv", "x,y,z\n")
     with pytest.raises(conv.ConverterError, match="different"):
