@@ -25,8 +25,8 @@ import urllib.error
 import urllib.request
 
 # ---- Fill these in with your GitHub details ---------------------------------
-GITHUB_OWNER = "YOUR_GITHUB_USERNAME"
-GITHUB_REPO = "YOUR_REPO_NAME"
+GITHUB_OWNER = "SBK008"
+GITHUB_REPO = "orbit-coordinate-converter"
 GITHUB_BRANCH = "main"
 # -----------------------------------------------------------------------------
 
