@@ -51,6 +51,15 @@ Download, double-click, done. No Python needed.
 
 ## 1.6.0: Features
 
+- [ ] More output formats, in the app and with a `--output-format` option:
+      - **KML:** open a ground track or flight path as a 3D line in Google Earth
+      - **GeoJSON:** for maps and GIS tools like QGIS
+      - **Excel (.xlsx):** opens directly in Excel; Excel's 1,048,576-row limit
+        means large files get split across sheets or a warning
+      - **JSON:** for other programs and scripts
+      - Written in chunks like today's output, so large files still use little memory
+      - Excel support as an optional install (`pip install "coordinate-converter[excel]"`)
+        so the base app stays small
 - [ ] XML OEM input (only text/KVN is supported today)
 - [ ] Reverse conversion: latitude, longitude, altitude back to ECEF X/Y/Z
 - [ ] More orbit inputs, such as TLEs, if users need them
