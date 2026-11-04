@@ -1,6 +1,6 @@
 # Coordinate Converter
 
-[![tests](https://github.com/YOUR_NAME/YOUR_REPO/actions/workflows/tests.yml/badge.svg)](https://github.com/YOUR_NAME/YOUR_REPO/actions/workflows/tests.yml)
+[![tests](https://github.com/SBK008/orbit-coordinate-converter/actions/workflows/tests.yml/badge.svg)](https://github.com/YOUR_NAME/YOUR_REPO/actions/workflows/tests.yml)
 
 Convert Earth-centered (ECEF) X/Y/Z coordinates and CCSDS OEM orbit files to WGS84 latitude, longitude, and altitude. Includes a desktop app and a command-line tool, and handles files with millions of points.
 
