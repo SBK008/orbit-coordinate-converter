@@ -15,6 +15,7 @@ Run:
 
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -34,9 +35,11 @@ TIME_FORMAT_LABELS = {
     "mjd": "MJD (Modified Julian Date)",
 }
 
+# "Format" choices. comma and space are tables; nairas is a NAIRAS trajectory file.
 SEPARATOR_LABELS = {
-    "comma": "Comma (.csv)",
-    "space": "Space (.txt, for NAIRAS / CCMC)",
+    "comma": "Comma separated (.csv)",
+    "space": "Space separated (.txt)",
+    "nairas": "NAIRAS trajectory (.txt, OEM input only)",
 }
 
 
@@ -61,6 +64,7 @@ class ConverterApp:
         self.zcol = tk.StringVar(value="z")
         self.separator = tk.StringVar(value="comma")
         self.header = tk.BooleanVar(value=True)
+        self.step = tk.StringVar(value="0")
         self.status = tk.StringVar(value="Choose an input file to start.")
         self.update_messages = queue.Queue()
         self._update_busy = False
@@ -135,6 +139,7 @@ class ConverterApp:
             ttk.Entry(cols, textvariable=var, width=10).pack(side="left", padx=(2, PAD))
 
         self.oem_widgets = _all_children(self.oem_frame)
+        self.epoch_widgets = _all_children(fmt)
         self.csv_widgets = _all_children(self.csv_frame)
 
     def _build_output_options(self):
@@ -142,19 +147,30 @@ class ConverterApp:
         box.grid(row=2, column=0, sticky="ew", padx=PAD, pady=(PAD, 0))
         box.columnconfigure(1, weight=1)
 
-        ttk.Label(box, text="Separator").grid(row=0, column=0, sticky="w")
+        ttk.Label(box, text="Format").grid(row=0, column=0, sticky="nw")
         seps = ttk.Frame(box)
         seps.grid(row=0, column=1, sticky="w", padx=PAD)
+        self.format_buttons = {}
         for value, text in SEPARATOR_LABELS.items():
-            ttk.Radiobutton(seps, text=text, value=value,
-                            variable=self.separator).pack(side="left", padx=(0, PAD))
-        ttk.Checkbutton(box, variable=self.header, text="Include column names as the first line"
-                        ).grid(row=1, column=1, sticky="w", padx=PAD, pady=(PAD // 2, 0))
+            b = ttk.Radiobutton(seps, text=text, value=value, variable=self.separator)
+            b.pack(anchor="w")
+            self.format_buttons[value] = b
+
+        self.step_frame = ttk.Frame(box)
+        self.step_frame.grid(row=1, column=1, sticky="w", padx=PAD, pady=(PAD // 2, 0))
+        ttk.Label(self.step_frame, text="Keep one point every").pack(side="left")
+        ttk.Entry(self.step_frame, textvariable=self.step, width=6).pack(side="left", padx=4)
+        ttk.Label(self.step_frame, text="seconds (0 keeps all; NASA's samples use 60)").pack(side="left")
+        self.step_frame.grid_remove()
+
+        self.header_button = ttk.Checkbutton(box, variable=self.header,
+                                             text="Include column names as the first line")
+        self.header_button.grid(row=2, column=1, sticky="w", padx=PAD, pady=(PAD // 2, 0))
         self.space_hint = ttk.Label(
             box, foreground="gray", wraplength=480,
             text="For CCMC uploads, keep the file name to letters, numbers and underscores, "
                  "with no spaces in the folder path.")
-        self.space_hint.grid(row=2, column=1, sticky="w", padx=PAD, pady=(PAD // 2, 0))
+        self.space_hint.grid(row=3, column=1, sticky="w", padx=PAD, pady=(PAD // 2, 0))
         self.space_hint.grid_remove()
 
     def _build_actions(self):
@@ -189,9 +205,23 @@ class ConverterApp:
         is_oem = self._resolved_type() == "oem"
         _set_state(self.oem_widgets, is_oem)
         _set_state(self.csv_widgets, not is_oem)
+        # NAIRAS needs the times in an OEM file
+        _set_state([self.format_buttons["nairas"]], is_oem)
+        if not is_oem and self.separator.get() == "nairas":
+            self.separator.set("space")
+        if self.separator.get() == "nairas":
+            _set_state(self.epoch_widgets, False)   # NAIRAS always uses UTC calendar dates
 
     def _output_ext(self):
-        return ".txt" if self.separator.get() == "space" else ".csv"
+        return ".csv" if self.separator.get() == "comma" else ".txt"
+
+    def _suggested_output(self, in_path):
+        stem, _ = os.path.splitext(in_path)
+        if self.separator.get() == "nairas":
+            folder, name = os.path.split(stem)
+            safe = re.sub(r"[^A-Za-z0-9_]+", "_", name).strip("_") or "trajectory"
+            return os.path.join(folder, safe + "_nairas.txt")
+        return stem + "_lla" + self._output_ext()
 
     def _set_output(self, path, auto):
         self._setting_output = True
@@ -210,15 +240,28 @@ class ConverterApp:
         path = self.input_path.get().strip()
         # Keep updating the suggestion while the user types, until they pick their own name
         if path and self._auto_output:
-            stem, _ = os.path.splitext(path)
-            self._set_output(stem + "_lla" + self._output_ext(), auto=True)
+            self._set_output(self._suggested_output(path), auto=True)
 
     def _on_separator_changed(self):
-        if self.separator.get() == "space":
-            self.space_hint.grid()
-        else:
+        mode = self.separator.get()
+        if mode == "comma":
             self.space_hint.grid_remove()
-        # Swap a .csv/.txt ending to match, but leave any other ending alone
+        else:
+            self.space_hint.grid()
+        if mode == "nairas":
+            self.step_frame.grid()
+            self.header_button.configure(text="Include # comment lines at the top")
+        else:
+            self.step_frame.grid_remove()
+            self.header_button.configure(text="Include column names as the first line")
+        self._update_option_states()
+        if mode != "nairas" and self._resolved_type() == "oem":
+            _set_state(self.epoch_widgets, True)
+        # A name we suggested follows the format; a name the user chose only gets its
+        # .csv/.txt ending swapped, and any other ending is left alone
+        if self._auto_output and self.input_path.get().strip():
+            self._set_output(self._suggested_output(self.input_path.get().strip()), auto=True)
+            return
         out = self.output_path.get().strip()
         stem, ext = os.path.splitext(out)
         if out and ext.lower() in (".csv", ".txt") and ext.lower() != self._output_ext():
@@ -282,8 +325,22 @@ class ConverterApp:
             return
 
         kind = self._resolved_type()
-        out_opts = dict(separator=self.separator.get(), header=self.header.get())
-        if kind == "csv":
+        mode = self.separator.get()
+        out_opts = dict(separator=mode, header=self.header.get())
+        if mode == "nairas":
+            try:
+                step = float(self.step.get().strip() or 0)
+                if step < 0:
+                    raise ValueError
+            except ValueError:
+                messagebox.showwarning(APP_TITLE, "The time step must be a number of seconds, "
+                                                  "0 or more.")
+                return
+            fast, header = self.fast.get(), self.header.get()
+            job = lambda report: conv.convert_oem_nairas(in_path, out_path, conv.OEM_CHUNKSIZE,
+                                                         fast, step, header=header,
+                                                         progress=report)
+        elif kind == "csv":
             cols = [self.xcol.get().strip(), self.ycol.get().strip(), self.zcol.get().strip()]
             if not all(cols):
                 messagebox.showwarning(APP_TITLE, "Fill in the X, Y and Z column names.")

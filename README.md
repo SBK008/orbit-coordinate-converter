@@ -7,7 +7,8 @@ Convert Earth-centered (ECEF) X/Y/Z coordinates and CCSDS OEM orbit files to WGS
 - **CSV input:** any CSV with X, Y, Z columns in meters. Your other columns are kept exactly as they were.
 - **CCSDS OEM input:** text (KVN) orbit files in Earth-fixed or space-fixed frames. Space-fixed positions are rotated to Earth-fixed at each epoch.
 - **Epoch output** as written in the file, as Gregorian calendar dates, or as Modified Julian Dates.
-- **Comma or space separated output.** Space separated `.txt` works for CCMC Runs-on-Request uploads such as NAIRAS.
+- **Comma or space separated output.**
+- **NAIRAS trajectory export:** OEM files can be saved in the exact trajectory format used by NASA's NAIRAS radiation model on CCMC Runs-on-Request.
 - **Large files:** processed in chunks, so memory stays flat. Tested on a 1 GB, 20 million row CSV.
 - **Safe writes:** a failed or stopped run never leaves a half-written output file.
 - **Built-in updates:** the app downloads only the changed files from GitHub.
@@ -19,7 +20,7 @@ Convert Earth-centered (ECEF) X/Y/Z coordinates and CCSDS OEM orbit files to WGS
 Requires Python 3.9 or newer.
 
 ```
-pip install git+https://github.com/SBK008/orbit-coordinate-converter.git
+pip install git+https://github.com/YOUR_NAME/YOUR_REPO.git
 ```
 
 This installs the dependencies and two commands:
@@ -30,7 +31,7 @@ This installs the dependencies and two commands:
 To update:
 
 ```
-pip install --upgrade git+https://github.com/SBK008/orbit-coordinate-converter.git
+pip install --upgrade git+https://github.com/YOUR_NAME/YOUR_REPO.git
 ```
 
 **Option 2: download the zip**
@@ -53,7 +54,7 @@ To update, click **Check for updates** in the app. It downloads only the files t
 2. Pick the options:
    - **OEM files:** epoch format, and fast mode for space-fixed frames
    - **CSV files:** the names of your X, Y, and Z columns
-   - **Output:** comma or space separated, and whether to include column names
+   - **Output:** comma separated, space separated, or NAIRAS trajectory, and whether to include column names
 3. Choose where to save and click **Convert**.
 
 ## Command line
@@ -70,7 +71,10 @@ xyz-to-lla orbit.oem output.csv --fast
 xyz-to-lla orbit.txt output.csv --format oem
 
 # Space separated, no header line
-xyz-to-lla orbit.oem trajectory_1.txt --separator space --no-header
+xyz-to-lla orbit.oem output.txt --separator space --no-header
+
+# NAIRAS trajectory, one point per minute
+xyz-to-lla orbit.oem trajectory_1.txt --nairas --step 60
 ```
 
 If you downloaded the zip, use `python xyz_to_lla.py` in place of `xyz-to-lla`.
@@ -82,7 +86,9 @@ If you downloaded the zip, use `python xyz_to_lla.py` in place of `xyz-to-lla`.
 | `--time-format original\|gregorian\|mjd` | How OEM epochs are written. |
 | `--fast` | Faster rotation for space-fixed OEM frames, within 0.05 mm of exact. |
 | `--separator comma\|space` | Output column separator. |
-| `--no-header` | Leave out the column names line. |
+| `--no-header` | Leave out the column names line (or the `#` comment lines with `--nairas`). |
+| `--nairas` | OEM only: write a NAIRAS trajectory file. |
+| `--step SECONDS` | With `--nairas`: keep one point per this many seconds (default 0 keeps all). |
 | `--chunksize N` | Rows processed at a time. |
 | `--version` | Show the version. |
 
@@ -106,13 +112,26 @@ Latitude and longitude are in degrees. Altitude is meters above the WGS84 ellips
 
 Covariance blocks are skipped. Space-fixed frames use astropy and IERS Earth orientation data, which it downloads when online.
 
-## Uploading to CCMC (NAIRAS)
+## NAIRAS trajectories (CCMC Runs-on-Request)
 
-The CCMC upload page rejects files based on their name. Choose **Space** as the separator, then:
+Choose **NAIRAS trajectory** in the app, or use `--nairas`. The output matches the trajectory input files NASA published with the [RaD-X flight data](https://doi.org/10.5281/zenodo.14927669), checked byte for byte against their balloon flight file:
 
-- use only letters, numbers, and underscores in the file name, like `trajectory_1.txt`
-- save it in a folder with no spaces anywhere in its path
-- check the NAIRAS instructions for the exact columns, units, and whether a header line is allowed
+```
+# year(yyyy),month(mm),day(dd),hour(hh),min(mm),sec(fractional second),alt(km),lat(deg),lon(deg)
+ 2015   9  25  17   6  6.000     1.394765    34.490002   255.783325
+```
+
+- Space separated, with `#` comment lines at the top
+- Date and time in UTC (TAI, TT, GPS and other OEM time systems are converted)
+- Altitude in km, **before** latitude
+- Longitude from 0 to 360 degrees east
+- One vehicle per file, with times in order
+
+Notes:
+
+- NASA's sample files use one point per minute. Long, high-rate OEM files can produce very large trajectories, so `--step 60` (or the "Keep one point every" box) is a good starting point.
+- Altitude is height above the WGS84 ellipsoid. NASA's aircraft and balloon files use barometric altitude, which can differ by tens of meters. For spacecraft this makes no practical difference.
+- The CCMC uploader checks file names: use only letters, numbers, and underscores (like `trajectory_1.txt`) and keep the file in a folder with no spaces in its path. The app suggests a safe name for you.
 
 ## Use in your own code
 

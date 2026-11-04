@@ -9,8 +9,11 @@ or a space-fixed frame (EME2000/J2000, GCRF, ICRF, TEME). Space-fixed positions
 are rotated to Earth-fixed (ITRS) at each line's epoch before conversion.
 
 Install:
-    pip install pyproj numpy pandas
-    pip install astropy      (only needed for OEM files in a space-fixed frame)
+    pip install -r requirements.txt
+    (astropy is only used for OEM files in a space-fixed frame)
+
+    Or install the whole app with pip (see README.md), which adds the
+    commands xyz-to-lla and coordinate-converter.
 
 Desktop app:
     python converter_gui.py
@@ -63,6 +66,10 @@ Output options (CSV and OEM):
     --separator comma   comma-separated output (default)
     --separator space   space-separated output, e.g. for CCMC Runs-on-Request uploads
     --no-header         leave out the column-name line at the top
+    --nairas            OEM only: write a NAIRAS trajectory input file for CCMC
+                        Runs-on-Request, matching NASA's RaD-X sample files:
+                        UTC year month day hour min sec, alt (km), lat, lon (0-360)
+    --step SECONDS      with --nairas, keep one point per SECONDS (0 keeps all)
 
     With --separator space, empty values are written as NaN so every row keeps
     the same number of columns, and any text value that contains a space (such
@@ -79,7 +86,7 @@ Usage (in your own code):
 
 # Version of the whole app. Bump this when you push an update: pip and the
 # GUI's "Check for updates" button both read it from here.
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 import argparse
 import contextlib
@@ -605,6 +612,26 @@ def _rotate_to_earth_fixed(meta, epochs, line_numbers, x, y, z, fast):
                        "current Earth orientation tables, then try again.")
 
 
+def _oem_points(in_path, chunksize, fast):
+    """
+    Read an OEM file in batches and yield
+    (meta, segment_number, line_numbers, epochs, x, y, z, lat, lon, alt)
+    with Earth-fixed X, Y, Z in meters.
+    """
+    segments = 0
+    last_meta = None
+    for meta, line_numbers, epochs, x_km, y_km, z_km in _iter_oem_batches(in_path, chunksize):
+        if meta is not last_meta:
+            segments += 1
+            last_meta = meta
+        _check_epochs(epochs, line_numbers)
+        x, y, z = x_km * 1000.0, y_km * 1000.0, z_km * 1000.0
+        if meta["frame"] in INERTIAL_FRAMES:
+            x, y, z = _rotate_to_earth_fixed(meta, epochs, line_numbers, x, y, z, fast)
+        lat, lon, alt = xyz_to_lla(x, y, z)
+        yield meta, segments, line_numbers, epochs, x, y, z, lat, lon, alt
+
+
 def convert_oem(in_path, out_path, chunksize, fast=False, time_format="original", progress=None,
                 separator="comma", header=True):
     if time_format not in TIME_FORMATS:
@@ -613,17 +640,9 @@ def convert_oem(in_path, out_path, chunksize, fast=False, time_format="original"
     columns = [("epoch_mjd" if c == "epoch" and time_format == "mjd" else c) for c in OEM_COLUMNS]
     total = 0
     segments = 0
-    last_meta = None
     with _output_file(out_path) as f:
-        for meta, line_numbers, epochs, x_km, y_km, z_km in _iter_oem_batches(in_path, chunksize):
-            if meta is not last_meta:
-                segments += 1
-                last_meta = meta
-            _check_epochs(epochs, line_numbers)
-            x, y, z = x_km * 1000.0, y_km * 1000.0, z_km * 1000.0
-            if meta["frame"] in INERTIAL_FRAMES:
-                x, y, z = _rotate_to_earth_fixed(meta, epochs, line_numbers, x, y, z, fast)
-            lat, lon, alt = xyz_to_lla(x, y, z)
+        for meta, segments, line_numbers, epochs, x, y, z, lat, lon, alt in \
+                _oem_points(in_path, chunksize, fast):
             epoch_col, epoch_values = format_epochs(epochs, line_numbers, time_format)
             df = pd.DataFrame({"object": meta["object"] or np.nan, epoch_col: epoch_values,
                                "time_system": meta["time_system"],
@@ -635,6 +654,122 @@ def convert_oem(in_path, out_path, chunksize, fast=False, time_format="original"
         if total == 0:
             _write_chunk(pd.DataFrame(columns=columns), f, sep, header)
     _report(progress, f"Done. Wrote {total:,} points from {segments} segment(s) to {out_path}")
+    return total
+
+
+# ---------------------------------------------------------------------------
+# NAIRAS trajectory output (CCMC Runs-on-Request)
+# ---------------------------------------------------------------------------
+# Matches the trajectory input files NASA published with the RaD-X data
+# (doi.org/10.5281/zenodo.14927669), for example:
+#   # year(yyyy),month(mm),day(dd),hour(hh),min(mm),sec(fractional second),alt(km),lat(deg),lon(deg)
+#    2015   9  25  17   6  6.000     1.394765    34.490002   255.783325
+# Space separated, UTC, altitude in km BEFORE latitude, longitude 0 to 360 east.
+
+NAIRAS_COLUMNS_LINE = ("# year(yyyy),month(mm),day(dd),hour(hh),min(mm),"
+                       "sec(fractional second),alt(km),lat(deg),lon(deg)")
+NAIRAS_ROW_FORMAT = " %4d %3d %3d %3d %3d %6.3f %12.6f %12.6f %12.6f"
+
+
+def _utc_times_ms(meta, epochs, line_numbers):
+    """OEM epochs as UTC datetime64[ms], converting from other time systems if needed."""
+    if meta["time_system"] == "UTC":
+        days, _, seconds = _split_epochs(epochs, line_numbers)
+        ms = np.rint(seconds * 1000.0).astype(np.int64)
+        return days.astype("datetime64[ms]") + ms.astype("timedelta64[ms]")
+    try:
+        ns = _parse_epochs(epochs, meta["time_system"]).utc.datetime64.astype("datetime64[ns]")
+    except OEMError:
+        raise
+    except Exception as e:
+        raise OEMError(f"Could not convert {meta['time_system']} epochs to UTC for the lines "
+                       f"starting at line {line_numbers[0]} (epoch {epochs[0]}).\n"
+                       f"{type(e).__name__}: {e}")
+    n = ns.astype(np.int64)
+    return ((n + 500_000) // 1_000_000).astype("datetime64[ms]")   # round to the millisecond
+
+
+def _nairas_rows(t_ms, lat, lon, alt_m):
+    """Columns in NAIRAS order: year month day hour min sec alt_km lat lon360."""
+    d = t_ms.astype("datetime64[D]")
+    month_start = d.astype("datetime64[M]")
+    year_start = d.astype("datetime64[Y]")
+    ms_of_day = (t_ms - d).astype(np.int64)
+    lon360 = np.round(np.mod(lon, 360.0), 6)
+    lon360[lon360 >= 360.0] = 0.0          # -0.0000001 rounds to 360.000000, which is 0
+    return np.column_stack([
+        year_start.astype(np.int64) + 1970,
+        (month_start - year_start).astype(np.int64) + 1,
+        (d - month_start).astype(np.int64) + 1,
+        ms_of_day // 3_600_000,
+        ms_of_day // 60_000 % 60,
+        ms_of_day % 60_000 / 1000.0,
+        alt_m / 1000.0,
+        lat,
+        lon360,
+    ])
+
+
+def convert_oem_nairas(in_path, out_path, chunksize, fast=False, step_seconds=0, header=True,
+                       progress=None):
+    """
+    Write an OEM file as a NAIRAS trajectory input file. step_seconds > 0 keeps
+    only the first point in each step_seconds window (RaD-X files use 60 s).
+    """
+    if step_seconds < 0:
+        raise ConverterError("The time step cannot be negative.")
+    step_ms = int(round(step_seconds * 1000))
+    total = 0
+    read = 0
+    segments = 0
+    objects = []
+    t0 = None
+    last_bucket = None
+    last_time = None
+    with _output_file(out_path) as f:
+        for meta, segments, line_numbers, epochs, x, y, z, lat, lon, alt in \
+                _oem_points(in_path, chunksize, fast):
+            name = meta["object"]
+            if name not in objects:
+                objects.append(name)
+                if len(objects) > 1:
+                    raise OEMError("A NAIRAS trajectory is one vehicle, but this OEM file has more "
+                                   f"than one object ({', '.join(o or '(no name)' for o in objects)}). "
+                                   "Split it into one file per object first.")
+            t = _utc_times_ms(meta, epochs, line_numbers)
+            ti = t.astype(np.int64)
+            prev = np.concatenate(([last_time if last_time is not None else ti[0] - 1], ti[:-1]))
+            backwards = ti <= prev
+            if backwards.any():
+                i = int(np.argmax(backwards))
+                raise OEMError(f"Line {line_numbers[i]}: epoch {epochs[i]} is not later than the "
+                               "one before it. NAIRAS needs the points in time order with no "
+                               "repeats.")
+            last_time = int(ti[-1])
+            keep = slice(None)
+            if step_ms > 0:
+                if t0 is None:
+                    t0 = int(ti[0])
+                bucket = (ti - t0) // step_ms
+                prev_b = np.concatenate(([last_bucket if last_bucket is not None else -1],
+                                         bucket[:-1]))
+                keep = bucket != prev_b
+                last_bucket = int(bucket[-1])
+            rows = _nairas_rows(t[keep], lat[keep], lon[keep], alt[keep])
+            if header and total == 0 and read == 0:
+                f.write("# NAIRAS trajectory input file\n")
+                f.write(f"# From {os.path.basename(in_path)}"
+                        f"{' (object ' + name + ')' if name else ''}, times in UTC, "
+                        f"made by xyz_to_lla {__version__}\n")
+                f.write(NAIRAS_COLUMNS_LINE + "\n")
+            if len(rows):
+                np.savetxt(f, rows, fmt=NAIRAS_ROW_FORMAT)
+            read += len(t)
+            total += len(rows)
+            _report(progress, f"Read {read:,} points, wrote {total:,} (segment {segments})")
+        if read == 0 and header:
+            f.write(NAIRAS_COLUMNS_LINE + "\n")
+    _report(progress, f"Done. Wrote {total:,} of {read:,} points to {out_path}")
     return total
 
 
@@ -672,6 +807,13 @@ def main():
                    help="OEM only: write epochs as they appear in the file (original), as "
                         "calendar dates (gregorian), or as Modified Julian Dates (mjd). "
                         "Default: original")
+    p.add_argument("--nairas", action="store_true",
+                   help="OEM only: write a NAIRAS trajectory input file (UTC date and time, "
+                        "alt km, lat, lon 0-360) for CCMC Runs-on-Request. --separator and "
+                        "--time-format do not apply")
+    p.add_argument("--step", type=float, default=0, metavar="SECONDS",
+                   help="with --nairas: keep one point per this many seconds (default 0, "
+                        "keep every point; NASA's RaD-X files use 60)")
     a = p.parse_args()
 
     fmt = a.format
@@ -681,7 +823,13 @@ def main():
     out_opts = dict(separator=a.separator, header=not a.no_header)
     try:
         check_paths(a.input, a.output)
-        if fmt == "csv":
+        if a.nairas:
+            if fmt == "csv":
+                raise ConverterError("--nairas needs an OEM file, which has the times NAIRAS "
+                                     "needs. Use --format oem if the file has another extension.")
+            convert_oem_nairas(a.input, a.output, a.chunksize or OEM_CHUNKSIZE, a.fast, a.step,
+                               header=not a.no_header)
+        elif fmt == "csv":
             convert_csv(a.input, a.output, a.x, a.y, a.z, a.chunksize or CSV_CHUNKSIZE, **out_opts)
         else:
             convert_oem(a.input, a.output, a.chunksize or OEM_CHUNKSIZE, a.fast, a.time_format,
