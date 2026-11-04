@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+from urllib.parse import urlparse
 
 import pytest
 
@@ -98,9 +99,10 @@ def test_install_replaces_files_and_keeps_backups(github):
 
 def test_files_come_from_the_release_tag_not_main(github):
     updater.install("1.2.0")
-    raw = [u for u in github.fetched if "raw.githubusercontent.com" in u]
-    assert raw and all(f"/{TAG}/" in u for u in raw)
-    assert not any("/main/" in u for u in github.fetched)
+    raw = [urlparse(u) for u in github.fetched
+           if urlparse(u).hostname == "raw.githubusercontent.com"]
+    assert raw and all(u.path.split("/")[3] == TAG for u in raw)
+    assert not any("/main/" in urlparse(u).path for u in github.fetched)
 
 
 def test_windows_line_endings_are_kept_byte_for_byte(github):
