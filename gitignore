@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Packaging (pip builds these)
+build/
+dist/
+*.egg-info/
+
+# Leftovers from the converter and updater
+*.part
+*.bak
+*.new
+
+# Converter output files (default names the app suggests)
+*_lla.csv
+*_lla.txt
+
+# Editors and OS
+.DS_Store
+.vscode/
+.idea/
+Thumbs.db
