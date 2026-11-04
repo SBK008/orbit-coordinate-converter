@@ -1,0 +1,48 @@
+# Runs the test suite on every push and pull request.
+# Results show as a green check (or red X) next to each commit on GitHub.
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:     # adds a "Run workflow" button on the Actions tab
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.10", "3.13"]
+        include:
+          - os: ubuntu-latest
+            python: "3.9"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install the app and test tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ".[test]"
+
+      - name: Run tests
+        if: runner.os != 'Linux'
+        run: python -m pytest -v
+
+      - name: Install a virtual display for the desktop app tests
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Run tests, including the desktop app (virtual display)
+        if: runner.os == 'Linux'
+        env:
+          RUN_GUI_TESTS: "1"
+        run: xvfb-run -a python -m pytest -v
