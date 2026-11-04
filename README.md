@@ -157,7 +157,10 @@ GitHub Actions runs everything on Linux, macOS, and Windows on every push. The b
 
 ## Publishing an update (maintainer notes)
 
-1. Upload the changed files to the top level of this repo.
-2. Raise `__version__` in `xyz_to_lla.py`, for example `1.1.0` to `1.1.1`.
+1. Create a branch for the change, for example `v1.3.0`.
+2. Make the changes on that branch and raise `__version__` in `xyz_to_lla.py`, for example `1.2.2` to `1.3.0`.
+3. Open a pull request into `main` and wait for the tests to pass.
+4. Merge the pull request.
+5. Go to **Releases > Draft a new release**, create a tag named after the version (like `v1.3.0`) on `main`, list what changed, and publish.
 
 The version number is how pip and the app's update button know there is something new. If it isn't raised, users won't be told about the update.
