@@ -132,6 +132,19 @@ def _raw_url(tag, name):
     return f"https://raw.githubusercontent.com/{GITHUB_OWNER}/{GITHUB_REPO}/{tag}/{name}"
 
 
+def is_packaged():
+    """True in a standalone app (built with PyInstaller), where Python and the
+    code are sealed inside the app and can't be swapped file by file."""
+    return bool(getattr(sys, "frozen", False))
+
+
+def download_page_url(tag=None):
+    """Release page where the standalone app for each system is downloaded."""
+    if tag:
+        return f"{repo_url()}/releases/tag/{tag}"
+    return f"{repo_url()}/releases/latest"
+
+
 def installed_with_pip():
     """True when these files live inside Python's packages folder (pip install)."""
     parts = APP_DIR.replace("\\", "/").split("/")
@@ -326,6 +339,9 @@ def install(current_version):
     trusted key, and every file downloads, matches SHA256SUMS, and is valid
     Python.
     """
+    if is_packaged():
+        raise UpdateError("This is the standalone app, so download the new version from:\n"
+                          f"{download_page_url()}")
     if installed_with_pip():
         raise UpdateError("This copy was installed with pip, so update it with:\n"
                           f"{pip_upgrade_command()}")

@@ -152,3 +152,10 @@ def test_bad_limit_is_refused_before_starting(app, tmp_path):
     app._start()
     assert app.worker is None
     assert "whole number" in app.messages_shown[-1]
+
+
+def test_self_test_passes(app, capsys):
+    import converter_gui
+    assert converter_gui.self_test() == 0
+    assert "self-test: passed" in capsys.readouterr().out
+
