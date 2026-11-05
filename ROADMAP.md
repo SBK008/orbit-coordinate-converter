@@ -14,7 +14,7 @@ so you can follow progress there. Have an idea or need? [Open an issue](https://
   Linux, macOS, and Windows with GitHub Actions, read-only workflow token,
   branch protection on `main`
 
-## 1.3.0: Secure updates (in review)
+## 1.3.0: Secure updates
 
 - [x] Updater installs only published releases, never untagged code on `main`
 - [x] Every downloaded file checked against the release's SHA-256 checksums
