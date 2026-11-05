@@ -1,0 +1,28 @@
+# How to cite this software. GitHub shows a "Cite this repository" button from
+# this file, and Zenodo uses it when archiving each release.
+# Update version and date-released with each release.
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "Orbit Coordinate Converter"
+abstract: >-
+  Converts ECEF X/Y/Z coordinates and CCSDS OEM orbit files to WGS84
+  latitude, longitude, and altitude, rotating space-fixed frames (EME2000,
+  GCRF, ICRF, TEME) to Earth-fixed. Handles files with millions of points and
+  exports trajectories in the format used by NASA's NAIRAS radiation model.
+authors:
+  - given-names: Samuel
+    family-names: Braman
+version: 1.4.0
+date-released: 2026-11-05
+license: MIT
+repository-code: "https://github.com/SBK008/orbit-coordinate-converter"
+url: "https://pypi.org/project/orbit-converter/"
+keywords:
+  - ECEF
+  - WGS84
+  - CCSDS
+  - OEM
+  - orbit
+  - coordinate conversion
+  - NAIRAS
