@@ -28,6 +28,12 @@ The in-app updater downloads new code, so here is exactly what it trusts and che
 
 **Limitation:** the checksums come from the same GitHub repository as the code. They catch damaged, partial, or swapped downloads and make sure you get exactly the files that were released, but they are not a signature. Someone who took over the maintainer's GitHub account could publish a malicious release with matching checksums. If you need stronger guarantees, install a specific release with pip and review changes before upgrading.
 
+## Build and dependency hygiene
+
+- **Pinned Actions:** every GitHub Action in `.github/workflows` is pinned to a full commit SHA, not a tag like `@v4`. A tag can be moved to different code. A commit SHA can't.
+- **Automatic update PRs:** Dependabot checks the Actions and Python packages weekly and opens a pull request for new versions. Each one must pass the full test suite before it can be merged.
+- **Least-privilege tokens:** the test workflow's token is read-only. The release workflow gets write access only in the one job that uploads `SHA256SUMS`.
+
 ## Scope
 
 This tool reads local CSV and OEM files and writes local output files. It does not open network ports, collect data, or send anything anywhere, except the update check, which only reads public files from GitHub.

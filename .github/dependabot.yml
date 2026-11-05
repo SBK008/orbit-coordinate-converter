@@ -1,0 +1,27 @@
+# Dependabot opens pull requests when the GitHub Actions or Python packages
+# this project uses have new versions. Each pull request runs the full test
+# suite, so an update is merged only after every check passes.
+version: 2
+updates:
+  # Actions in .github/workflows are pinned to commit SHAs. Dependabot updates
+  # the SHA and the version comment next to it together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Python packages listed in pyproject.toml and requirements.txt.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "deps"
+    groups:
+      python-packages:
+        patterns: ["*"]
