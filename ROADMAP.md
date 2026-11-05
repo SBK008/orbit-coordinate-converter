@@ -33,7 +33,11 @@ so you can follow progress there. Have an idea or need? [Open an issue](https://
 - [x] Set version bounds on dependencies
 - [x] `CHANGELOG.md`
 
-## 1.5.0: Features and usability
+## 1.5.0: Only the first N points (released)
+
+- [x] Keep just the first N points of any output, in the app and with `--limit`
+
+## 1.6.0: Features and usability
 
 [Track progress](https://github.com/SBK008/orbit-coordinate-converter/milestone/3)
 
