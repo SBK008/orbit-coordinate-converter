@@ -29,7 +29,7 @@ so you can follow progress there. Have an idea or need? [Open an issue](https://
 - [ ] Publish to PyPI with trusted publishing, so install is `pip install coordinate-converter`
 - [ ] Sign releases (for example with Sigstore) so the updater can verify who
       published them, not just that files arrived intact
-- [ ] Pin GitHub Actions to commit SHAs and turn on Dependabot
+- [x] Pin GitHub Actions to commit SHAs and turn on Dependabot
 - [ ] Set version bounds on dependencies
 - [ ] `CHANGELOG.md`
 
@@ -53,6 +53,9 @@ Download, double-click, done. No Python needed.
       - Windows: a code signing certificate or Azure Trusted Signing
       - Until then, the apps ship unsigned, with instructions for opening them
 - [ ] Download page in the README with one button per system
+- [ ] A modern look for the desktop app, with light and dark mode
+- [ ] Full keyboard use and readable contrast, for accessibility
+- [ ] A docs site on GitHub Pages with screenshots and how-to guides
 
 ## 1.6.0: Features
 
@@ -71,6 +74,31 @@ Download, double-click, done. No Python needed.
 - [ ] Reverse conversion: latitude, longitude, altitude back to ECEF X/Y/Z
 - [ ] More orbit inputs, such as TLEs, if users need them
 - [ ] Fuzz testing for the OEM and CSV parsers
+- [ ] Easier to use: drag and drop files, a preview of the first output rows,
+      a map preview of the trajectory, and plain-language error messages that
+      say how to fix the problem
+- [ ] A new `orbit-convert` command with subcommands. `xyz-to-lla` keeps
+      working but warns that it will be removed in 2.0
+
+## 2.0.0: Redesign
+
+[Track progress](https://github.com/SBK008/orbit-coordinate-converter/milestone/4)
+
+Breaking changes are saved up for one release, so users only adjust once.
+Each one gets a warning in a 1.x release first.
+
+- [ ] One command, `orbit-convert`, replaces `xyz-to-lla`:
+      ```
+      orbit-convert to-lla input.oem output.csv --format kml
+      orbit-convert to-ecef input.csv output.csv
+      ```
+- [ ] The code moves into an `orbit_converter` package with a clean import
+      (`from orbit_converter import to_lla`)
+- [ ] A redesigned app, either:
+      - **Qt (PySide6):** a professional desktop app on every system, or
+      - **Browser version:** nothing to install, and files never leave your
+        computer
+- [ ] An "Upgrading to 2.0" guide showing old usage next to new
 
 ## Ongoing
 
