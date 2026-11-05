@@ -16,11 +16,12 @@ updates:
         patterns: ["*"]
 
   # Python packages listed in pyproject.toml and requirements.txt.
-  # Bounds are ranges like "numpy>=1.24,<3". "widen" keeps the lower bound and
-  # raises the upper one when a new major version comes out.
+  # Bounds are ranges like "numpy>=1.24,<3". "increase-if-necessary" changes
+  # a range only when a new release falls outside it, such as numpy 3.0.
+  # (pip doesn't support "widen".)
   - package-ecosystem: pip
     directory: /
-    versioning-strategy: widen
+    versioning-strategy: increase-if-necessary
     schedule:
       interval: weekly
     commit-message:

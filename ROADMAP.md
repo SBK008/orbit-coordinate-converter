@@ -22,7 +22,7 @@ so you can follow progress there. Have an idea or need? [Open an issue](https://
 - [x] Downloads are HTTPS only from GitHub, and size-limited
 - [x] Output temp files can't be redirected by a planted symlink
 
-## 1.4.0: Supply chain and distribution (in review)
+## 1.4.0: Supply chain and distribution (released)
 
 [Track progress](https://github.com/SBK008/orbit-coordinate-converter/milestone/1)
 
