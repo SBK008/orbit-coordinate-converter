@@ -77,51 +77,22 @@ pip install orbit-converter
 
 To update, click **Check for updates** in the app. It installs the latest release only after checking its signature and every file's checksum.
 
-### macOS notes
+### Mac users
 
-**Setup**
-
-1. Install Python 3.11 or newer from [python.org](https://www.python.org/downloads/macos/). It includes Tk, which the desktop app needs.
-2. Open the Python folder in **Applications** and double-click **Install Certificates.command**. Without this, downloads of Earth orientation data for space-fixed OEM frames can fail.
-3. Open **Terminal** (Cmd+Space, type "Terminal") and create a virtual environment. Recent Python versions block installing into the system Python:
+1. Install Python from [python.org](https://www.python.org/downloads/macos/) (3.11 or newer).
+2. In **Applications > Python**, double-click **Install Certificates.command**.
+3. Open **Terminal** (Cmd+Space, type "Terminal") and run:
    ```
-   python3 -m venv ~/orbit-env
-   source ~/orbit-env/bin/activate
-   pip install orbit-converter
+   pip3 install orbit-converter
+   ```
+4. Start the app any time by typing this in Terminal:
+   ```
+   coordinate-converter
    ```
 
-**Running it**
+Keep Terminal open while the app is running.
 
-Each time you open a new Terminal window, turn the environment back on first:
-
-```
-source ~/orbit-env/bin/activate
-coordinate-converter
-```
-
-Keep Terminal open while you use the app. Closing it closes the app. For the command-line tool, type `xyz-to-lla `, then drag your input file from Finder into Terminal to fill in its path.
-
-If you used the zip, run `python3 converter_gui.py` (macOS uses `python3`, not `python`).
-
-**Using pipx instead**
-
-[pipx](https://pipx.pypa.io/) skips the activation step and keeps the commands available in every Terminal window:
-
-```
-brew install pipx
-pipx ensurepath
-pipx install orbit-converter
-```
-
-**Common problems**
-
-| Problem | Fix |
-|---|---|
-| `command not found: coordinate-converter` | The environment isn't on. Run `source ~/orbit-env/bin/activate`. |
-| `No module named '_tkinter'` | Homebrew's Python leaves out Tk. Run `brew install python-tk@3.13`, matching your Python version. |
-| `externally-managed-environment` | You ran pip outside a virtual environment. Do step 3 above. |
-| SSL or certificate errors | Run **Install Certificates.command** (step 2). |
-| App window doesn't appear | Click the Python rocket icon in the Dock. |
+**If something goes wrong:** close Terminal, open a new one, and try again. If it still doesn't work, make sure you installed Python from python.org (not Homebrew), then [open an issue](https://github.com/SBK008/orbit-coordinate-converter/issues).
 
 ## Desktop app
 
