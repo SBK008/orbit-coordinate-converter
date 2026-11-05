@@ -1,8 +1,24 @@
-# Coordinate Converter
+# Orbit Coordinate Converter
 
 [![tests](https://github.com/SBK008/orbit-coordinate-converter/actions/workflows/tests.yml/badge.svg)](https://github.com/SBK008/orbit-coordinate-converter/actions/workflows/tests.yml)
+[![PyPI](https://img.shields.io/pypi/v/orbit-converter)](https://pypi.org/project/orbit-converter/)
+[![Python](https://img.shields.io/pypi/pyversions/orbit-converter)](https://pypi.org/project/orbit-converter/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/SBK008/orbit-coordinate-converter/blob/main/LICENSE)
 
 Convert Earth-centered (ECEF) X/Y/Z coordinates and CCSDS OEM orbit files to WGS84 latitude, longitude, and altitude. Includes a desktop app and a command-line tool, and handles files with millions of points.
+
+```
+pip install orbit-converter
+xyz-to-lla orbit.oem output.csv
+```
+
+## Why use this
+
+- **No code needed.** Point it at a CSV or OEM file and get latitude, longitude, and altitude back. Libraries like pyproj and Astropy can do the math, but you'd still write the file reading, frame rotation, and chunking yourself.
+- **Space-fixed frames handled.** EME2000, GCRF, ICRF, and TEME positions are rotated to Earth-fixed at each epoch before converting.
+- **Ready for NAIRAS.** Exports the exact trajectory format NASA's NAIRAS radiation model expects on CCMC Runs-on-Request, checked byte for byte against a real NASA file.
+- **Any file size.** Tested on 20 million rows (1 GB) with flat memory use.
+- **Free and verifiable.** MIT licensed, and every release is signed. See [Verifying a release](#verifying-a-release).
 
 ## Features
 
@@ -16,7 +32,7 @@ Convert Earth-centered (ECEF) X/Y/Z coordinates and CCSDS OEM orbit files to WGS
 - **Safe writes:** a failed or stopped run never leaves a half-written output file.
 - **Signed updates:** the app installs only published releases, and checks every file against SHA-256 checksums signed with the maintainer's offline key.
 
-Standalone apps for Windows, macOS, and Linux are planned. See the [roadmap](https://github.com/SBK008/orbit-coordinate-converter/blob/main/ROADMAP.md) for what's coming next.
+See the [roadmap](https://github.com/SBK008/orbit-coordinate-converter/blob/main/ROADMAP.md) for what's coming next.
 
 ## Install
 
@@ -164,10 +180,20 @@ The tests cover the conversion math, CSV and OEM input, every output option, the
 
 GitHub Actions runs everything on Linux, macOS, and Windows on every push. The badge at the top shows the latest result.
 
+## Verifying a release
+
+Every release is signed with the maintainer's offline [minisign](https://jedisct1.github.io/minisign/) key and with Sigstore through GitHub's artifact attestations. PyPI packages are published with trusted publishing, so PyPI shows exactly which workflow built each file. The in-app updater checks the minisign signature before installing anything.
+
+To check a release yourself, see [Verifying a release yourself](https://github.com/SBK008/orbit-coordinate-converter/blob/main/SECURITY.md#verifying-a-release-yourself) in SECURITY.md.
+
+## Citing
+
+If this tool helps your research, please cite it. GitHub's **Cite this repository** button (in the About section) gives APA and BibTeX from [`CITATION.cff`](https://github.com/SBK008/orbit-coordinate-converter/blob/main/CITATION.cff).
+
 ## Publishing an update (maintainer notes)
 
 1. Create a branch for the change, for example `v1.4.0`.
-2. Make the changes on that branch, raise `__version__` in `xyz_to_lla.py`, and add a section to `CHANGELOG.md`.
+2. Make the changes on that branch, raise `__version__` in `xyz_to_lla.py`, add a section to `CHANGELOG.md`, and update `version` and `date-released` in `CITATION.cff`.
 3. Open a pull request into `main` and wait for the tests to pass.
 4. Merge the pull request.
 5. Go to **Releases > Draft a new release**, create a tag named after the version (like `v1.4.0`) on `main`, paste the changelog section, and publish.

@@ -3,3 +3,4 @@ include CHANGELOG.md SECURITY.md requirements.txt
 recursive-include tests *.py
 recursive-include tests/data *
 recursive-include examples *
+include CITATION.cff
