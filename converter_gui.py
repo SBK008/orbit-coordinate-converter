@@ -4,8 +4,9 @@ Desktop window for the coordinate converter in xyz_to_lla.py.
 
 Pick an input file (CSV with ECEF X/Y/Z in meters, or a CCSDS OEM text file),
 choose how epochs are written (original, Gregorian, or MJD), choose comma or
-space separated output, pick where to save, and click Convert. The conversion runs in a background thread so the window stays
-responsive on large files.
+space separated output, optionally keep only the first N points, pick where to
+save, and click Convert. The conversion runs in a background thread so the
+window stays responsive on large files.
 
 "Check for updates" installs the latest GitHub release, checking each file against
 the release's SHA256SUMS (see updater.py).
@@ -66,6 +67,7 @@ class ConverterApp:
         self.separator = tk.StringVar(value="comma")
         self.header = tk.BooleanVar(value=True)
         self.step = tk.StringVar(value="0")
+        self.limit = tk.StringVar(value="")
         self.status = tk.StringVar(value="Choose an input file to start.")
         self.update_messages = queue.Queue()
         self._update_busy = False
@@ -164,14 +166,20 @@ class ConverterApp:
         ttk.Label(self.step_frame, text="seconds (0 keeps all; NASA's samples use 60)").pack(side="left")
         self.step_frame.grid_remove()
 
+        limit_frame = ttk.Frame(box)
+        limit_frame.grid(row=2, column=1, sticky="w", padx=PAD, pady=(PAD // 2, 0))
+        ttk.Label(limit_frame, text="Only the first").pack(side="left")
+        ttk.Entry(limit_frame, textvariable=self.limit, width=8).pack(side="left", padx=4)
+        ttk.Label(limit_frame, text="points (leave blank to keep all)").pack(side="left")
+
         self.header_button = ttk.Checkbutton(box, variable=self.header,
                                              text="Include column names as the first line")
-        self.header_button.grid(row=2, column=1, sticky="w", padx=PAD, pady=(PAD // 2, 0))
+        self.header_button.grid(row=3, column=1, sticky="w", padx=PAD, pady=(PAD // 2, 0))
         self.space_hint = ttk.Label(
             box, foreground="gray", wraplength=480,
             text="For CCMC uploads, keep the file name to letters, numbers and underscores, "
                  "with no spaces in the folder path.")
-        self.space_hint.grid(row=3, column=1, sticky="w", padx=PAD, pady=(PAD // 2, 0))
+        self.space_hint.grid(row=4, column=1, sticky="w", padx=PAD, pady=(PAD // 2, 0))
         self.space_hint.grid_remove()
 
     def _build_actions(self):
@@ -329,7 +337,12 @@ class ConverterApp:
 
         kind = self._resolved_type()
         mode = self.separator.get()
-        out_opts = dict(separator=mode, header=self.header.get())
+        try:
+            limit = conv.check_limit(self.limit.get())
+        except conv.ConverterError as e:
+            messagebox.showwarning(APP_TITLE, str(e))
+            return
+        out_opts = dict(separator=mode, header=self.header.get(), limit=limit)
         if mode == "nairas":
             step = self.step.get().strip() or "0"
             try:
@@ -341,7 +354,7 @@ class ConverterApp:
             fast, header = self.fast.get(), self.header.get()
             job = lambda report: conv.convert_oem_nairas(in_path, out_path, conv.OEM_CHUNKSIZE,
                                                          fast, step, header=header,
-                                                         progress=report)
+                                                         progress=report, limit=limit)
         elif kind == "csv":
             cols = [self.xcol.get().strip(), self.ycol.get().strip(), self.zcol.get().strip()]
             if not all(cols):
@@ -388,7 +401,8 @@ class ConverterApp:
                     self.status.set(payload)
                 elif kind == "done":
                     total, out_path = payload
-                    self._finish(f"Done. Wrote {total:,} points to {os.path.basename(out_path)}")
+                    self._finish(f"Done. Wrote {total:,} points to {os.path.basename(out_path)}"
+                                 f"{' (the limit you set)' if self._limit_hit(total) else ''}")
                     self.last_output = out_path
                     self.open_button.configure(state="normal")
                     return
@@ -399,6 +413,13 @@ class ConverterApp:
         except queue.Empty:
             pass
         self.root.after(100, self._poll)
+
+    def _limit_hit(self, total):
+        try:
+            limit = conv.check_limit(self.limit.get())
+        except conv.ConverterError:
+            return False
+        return bool(limit) and total >= limit
 
     def _finish(self, message):
         self.progress.stop()

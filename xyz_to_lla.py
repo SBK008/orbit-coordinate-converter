@@ -70,6 +70,7 @@ Output options (CSV and OEM):
                         Runs-on-Request, matching NASA's RaD-X sample files:
                         UTC year month day hour min sec, alt (km), lat, lon (0-360)
     --step SECONDS      with --nairas, keep one point per SECONDS (0 keeps all)
+    --limit N           write only the first N points (0 keeps all)
 
     With --separator space, empty values are written as NaN so every row keeps
     the same number of columns, and any text value that contains a space (such
@@ -86,7 +87,7 @@ Usage (in your own code):
 
 # Version of the whole app. Bump this when you push an update: pip and the
 # GUI's "Check for updates" button both read it from here.
-__version__ = "1.4.1"
+__version__ = "1.5.0"
 
 import argparse
 import contextlib
@@ -157,6 +158,25 @@ def _separator(name):
     return SEPARATORS[name]
 
 
+def check_limit(limit):
+    """Return the most points to write (0 means all), or raise ConverterError."""
+    if limit is None or (isinstance(limit, str) and not limit.strip()):
+        return 0
+    try:
+        n = float(limit)
+    except (TypeError, ValueError):
+        n = math.nan
+    if not math.isfinite(n) or n < 0 or n != int(n):
+        raise ConverterError("The number of points must be a whole number, 0 or more "
+                             "(0 or blank keeps every point).")
+    return int(n)
+
+
+def _done_message(total, limit, out_path, extra=""):
+    stopped = f", stopped at the limit of {limit:,}" if limit and total >= limit else ""
+    return f"Done. Wrote {total:,} points{extra}{stopped} to {out_path}"
+
+
 def _read_umask():
     # os.umask can only be read by setting it, which changes it for the whole
     # process. Do that once here, at import, before the app starts any threads.
@@ -211,8 +231,9 @@ def _resolve_column(name, columns):
 
 
 def convert_csv(in_path, out_path, xcol, ycol, zcol, chunksize, progress=None,
-                separator="comma", header=True):
+                separator="comma", header=True, limit=0):
     sep = _separator(separator)
+    limit = check_limit(limit)
     total = 0
     cols = None
     # Every column is read as text so the original columns are written back exactly
@@ -224,6 +245,8 @@ def convert_csv(in_path, out_path, xcol, ycol, zcol, chunksize, progress=None,
             for chunk in reader:
                 if cols is None:
                     cols = _find_xyz(chunk.columns, (xcol, ycol, zcol), in_path)
+                if limit:
+                    chunk = chunk.iloc[:limit - total].copy()
                 nums = []
                 for c in cols:
                     v = pd.to_numeric(chunk[c], errors="coerce").to_numpy(dtype=np.float64)
@@ -241,6 +264,8 @@ def convert_csv(in_path, out_path, xcol, ycol, zcol, chunksize, progress=None,
                 _write_chunk(chunk, f, sep, header and total == 0)
                 total += len(chunk)
                 _report(progress, f"Converted {total:,} points")
+                if limit and total >= limit:
+                    break
             if cols is None:
                 # Header only, no data rows: still write the header
                 columns = pd.read_csv(in_path, nrows=0, **read_opts).columns
@@ -254,7 +279,7 @@ def convert_csv(in_path, out_path, xcol, ycol, zcol, chunksize, progress=None,
     except UnicodeDecodeError:
         raise ConverterError(f"{in_path} is not a text CSV file (it may be an Excel .xlsx "
                              "file; save it as CSV first).")
-    _report(progress, f"Done. Wrote {total:,} points to {out_path}")
+    _report(progress, _done_message(total, limit, out_path))
     return total
 
 
@@ -671,10 +696,11 @@ def _oem_points(in_path, chunksize, fast):
 
 
 def convert_oem(in_path, out_path, chunksize, fast=False, time_format="original", progress=None,
-                separator="comma", header=True):
+                separator="comma", header=True, limit=0):
     if time_format not in TIME_FORMATS:
         raise ValueError(f"Unknown time format {time_format!r}. Use one of: {', '.join(TIME_FORMATS)}.")
     sep = _separator(separator)
+    limit = check_limit(limit)
     columns = [("epoch_mjd" if c == "epoch" and time_format == "mjd" else c) for c in OEM_COLUMNS]
     total = 0
     segments = 0
@@ -686,12 +712,16 @@ def convert_oem(in_path, out_path, chunksize, fast=False, time_format="original"
                                "time_system": meta["time_system"],
                                "x_ecef_m": x, "y_ecef_m": y, "z_ecef_m": z,
                                "lat": lat, "lon": lon, "alt": alt}, columns=columns)
+            if limit:
+                df = df.iloc[:limit - total]
             _write_chunk(df, f, sep, header and total == 0)
             total += len(df)
             _report(progress, f"Converted {total:,} points (segment {segments}, {meta['frame']})")
+            if limit and total >= limit:
+                break
         if total == 0:
             _write_chunk(pd.DataFrame(columns=columns), f, sep, header)
-    _report(progress, f"Done. Wrote {total:,} points from {segments} segment(s) to {out_path}")
+    _report(progress, _done_message(total, limit, out_path, f" from {segments} segment(s)"))
     return total
 
 
@@ -764,12 +794,14 @@ def check_step(step_seconds):
 
 
 def convert_oem_nairas(in_path, out_path, chunksize, fast=False, step_seconds=0, header=True,
-                       progress=None):
+                       progress=None, limit=0):
     """
     Write an OEM file as a NAIRAS trajectory input file. step_seconds > 0 keeps
     only the first point in each step_seconds window (RaD-X files use 60 s).
+    limit > 0 stops after that many points are written.
     """
     step_ms = check_step(step_seconds)
+    limit = check_limit(limit)
     total = 0
     read = 0
     segments = 0
@@ -807,6 +839,8 @@ def convert_oem_nairas(in_path, out_path, chunksize, fast=False, step_seconds=0,
                 keep = bucket != prev_b
                 last_bucket = int(bucket[-1])
             rows = _nairas_rows(t[keep], lat[keep], lon[keep], alt[keep])
+            if limit:
+                rows = rows[:limit - total]
             if header and total == 0 and read == 0:
                 f.write("# NAIRAS trajectory input file\n")
                 f.write(f"# From {os.path.basename(in_path)}"
@@ -818,9 +852,11 @@ def convert_oem_nairas(in_path, out_path, chunksize, fast=False, step_seconds=0,
             read += len(t)
             total += len(rows)
             _report(progress, f"Read {read:,} points, wrote {total:,} (segment {segments})")
+            if limit and total >= limit:
+                break
         if read == 0 and header:
             f.write(NAIRAS_COLUMNS_LINE + "\n")
-    _report(progress, f"Done. Wrote {total:,} of {read:,} points to {out_path}")
+    _report(progress, _done_message(total, limit, out_path, f" of {read:,} read"))
     return total
 
 
@@ -869,13 +905,16 @@ def main():
     p.add_argument("--step", type=float, default=0, metavar="SECONDS",
                    help="with --nairas: keep one point per this many seconds (default 0, "
                         "keep every point; NASA's RaD-X files use 60)")
+    p.add_argument("--limit", type=_non_negative_int, default=0, metavar="N",
+                   help="write only the first N points (default 0, keep every point). "
+                        "With --step, counts the points that are kept")
     a = p.parse_args()
 
     fmt = a.format
     if fmt == "auto":
         fmt = "oem" if a.input.lower().endswith(".oem") else "csv"
 
-    out_opts = dict(separator=a.separator, header=not a.no_header)
+    out_opts = dict(separator=a.separator, header=not a.no_header, limit=a.limit)
     try:
         check_paths(a.input, a.output)
         if a.nairas:
@@ -883,7 +922,7 @@ def main():
                 raise ConverterError("--nairas needs an OEM file, which has the times NAIRAS "
                                      "needs. Use --format oem if the file has another extension.")
             convert_oem_nairas(a.input, a.output, a.chunksize or OEM_CHUNKSIZE, a.fast, a.step,
-                               header=not a.no_header)
+                               header=not a.no_header, limit=a.limit)
         elif fmt == "csv":
             convert_csv(a.input, a.output, a.x, a.y, a.z, a.chunksize or CSV_CHUNKSIZE, **out_opts)
         else:
@@ -911,6 +950,16 @@ def _positive_int(text):
         raise argparse.ArgumentTypeError(f"{text!r} is not a whole number")
     if n < 1:
         raise argparse.ArgumentTypeError("must be at least 1")
+    return n
+
+
+def _non_negative_int(text):
+    try:
+        n = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a whole number")
+    if n < 0:
+        raise argparse.ArgumentTypeError("must be 0 or more")
     return n
 
 
