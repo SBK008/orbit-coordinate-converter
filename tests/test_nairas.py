@@ -99,6 +99,9 @@ def test_bad_trajectories(write, tmp_path, segments, message):
     assert not os.path.exists(tmp_path / "trajectory_1.txt")
 
 
-def test_negative_step(write, tmp_path):
-    with pytest.raises(conv.ConverterError):
-        nairas(write, tmp_path, oem_text([({}, [])]), step_seconds=-1)
+@pytest.mark.parametrize("step", [-1, float("nan"), float("inf"), 0.0004])
+def test_bad_step(write, tmp_path, step):
+    # nan and inf used to crash with a Python error, and a step under a
+    # millisecond was silently treated as 0 (keep every point)
+    with pytest.raises(conv.ConverterError, match="time step"):
+        nairas(write, tmp_path, oem_text([({}, [])]), step_seconds=step)

@@ -153,6 +153,42 @@ def test_check_paths(write):
         conv.check_paths(src + ".missing", "out.csv")
 
 
+def test_check_paths_refuses_a_folder_as_output(write, tmp_path):
+    # This used to fail with a Python error after the whole file was converted
+    src = write("in.csv", "x,y,z\n")
+    folder = tmp_path / "results"
+    folder.mkdir()
+    with pytest.raises(conv.ConverterError, match="is a folder"):
+        conv.check_paths(src, str(folder))
+
+
+def test_check_paths_catches_another_name_for_the_input(write, tmp_path):
+    # On Windows and macOS, "Orbit.oem" and "orbit.oem" are the same file. A hard
+    # link is another name for the same file on every system.
+    src = write("in.csv", "x,y,z\n")
+    link = tmp_path / "other_name.csv"
+    os.link(src, link)
+    with pytest.raises(conv.ConverterError, match="different"):
+        conv.check_paths(src, str(link))
+
+
+def test_output_permissions_follow_the_umask_without_changing_it(write, tmp_path, monkeypatch):
+    # The umask is read once at import. Reading it means briefly setting it to 0
+    # for the whole process, which must not happen while the app's update thread
+    # could be creating files.
+    if os.name != "posix":
+        pytest.skip("Unix file permissions")
+    src = write("in.csv", "x,y,z\n6378137,0,0\n")
+    out = tmp_path / "o.csv"
+    monkeypatch.setattr(conv, "_UMASK", 0o027)
+    calls = []
+    real_umask = os.umask
+    monkeypatch.setattr(os, "umask", lambda m: calls.append(m) or real_umask(m))
+    conv.convert_csv(src, str(out), "x", "y", "z", 10, progress=lambda m: None)
+    assert oct(out.stat().st_mode & 0o777) == oct(0o640)
+    assert calls == []
+
+
 def test_unknown_separator(write, tmp_path):
     src = write("in.csv", "x,y,z\n6378137,0,0\n")
     with pytest.raises(ValueError):

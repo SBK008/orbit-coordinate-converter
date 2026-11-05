@@ -92,3 +92,42 @@ def test_error_is_shown_and_no_file_written(app, tmp_path):
     assert run(app) == "Conversion failed."
     assert "not a number" in app.messages_shown[-1]
     assert not os.path.exists(app.output_path.get())
+
+
+def test_output_that_is_the_input_under_another_name_is_refused(app, tmp_path):
+    # The app used to compare paths as text, so on Windows and macOS "Orbit.oem"
+    # and "orbit.oem" could overwrite the input. A hard link shows the same thing.
+    src = tmp_path / "orbit.csv"
+    src.write_text("x,y,z\n6378137,0,0\n")
+    link = tmp_path / "same_file.csv"
+    os.link(src, link)
+    app.input_type.set("csv")
+    app.input_path.set(str(src))
+    app.output_path.set(str(link))
+    app._start()
+    assert app.worker is None
+    assert "different" in app.messages_shown[-1]
+    assert src.read_text() == "x,y,z\n6378137,0,0\n"
+
+
+def test_folder_as_output_is_refused(app, tmp_path):
+    src = tmp_path / "orbit.csv"
+    src.write_text("x,y,z\n6378137,0,0\n")
+    app.input_type.set("csv")
+    app.input_path.set(str(src))
+    app.output_path.set(str(tmp_path))
+    app._start()
+    assert app.worker is None
+    assert "is a folder" in app.messages_shown[-1]
+
+
+@pytest.mark.parametrize("step", ["nan", "inf", "-5", "abc"])
+def test_bad_nairas_step_is_refused_before_starting(app, tmp_path, step):
+    src = tmp_path / "orbit.oem"
+    src.write_text(oem_text([({}, ["2026-01-01T00:00:00 6778.137 0 0"])]))
+    app.input_path.set(str(src))
+    app.separator.set("nairas")
+    app.step.set(step)
+    app._start()
+    assert app.worker is None
+    assert "time step" in app.messages_shown[-1]

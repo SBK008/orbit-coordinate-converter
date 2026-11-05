@@ -318,8 +318,10 @@ class ConverterApp:
         if not out_path:
             messagebox.showwarning(APP_TITLE, "Choose where to save the output.")
             return
-        if os.path.abspath(in_path) == os.path.abspath(out_path):
-            messagebox.showwarning(APP_TITLE, "The output file must be different from the input file.")
+        try:
+            conv.check_paths(in_path, out_path)
+        except conv.ConverterError as e:
+            messagebox.showwarning(APP_TITLE, str(e))
             return
         if os.path.exists(out_path) and not messagebox.askyesno(
                 APP_TITLE, f"{os.path.basename(out_path)} already exists. Replace it?"):
@@ -329,14 +331,13 @@ class ConverterApp:
         mode = self.separator.get()
         out_opts = dict(separator=mode, header=self.header.get())
         if mode == "nairas":
+            step = self.step.get().strip() or "0"
             try:
-                step = float(self.step.get().strip() or 0)
-                if step < 0:
-                    raise ValueError
-            except ValueError:
-                messagebox.showwarning(APP_TITLE, "The time step must be a number of seconds, "
-                                                  "0 or more.")
+                conv.check_step(step)
+            except conv.ConverterError as e:
+                messagebox.showwarning(APP_TITLE, str(e))
                 return
+            step = float(step)
             fast, header = self.fast.get(), self.header.get()
             job = lambda report: conv.convert_oem_nairas(in_path, out_path, conv.OEM_CHUNKSIZE,
                                                          fast, step, header=header,

@@ -64,7 +64,7 @@ pip install orbit-converter
 
 **Option 2: download the zip**
 
-1. Click **Code > Download ZIP** and unzip it.
+1. Open the [latest release](https://github.com/SBK008/orbit-coordinate-converter/releases/latest), download **Source code (zip)** under **Assets**, and unzip it. (The green **Code > Download ZIP** button gives the newest code on `main`, which may not be released yet.)
 2. Install the dependencies:
    ```
    pip install -r requirements.txt
@@ -74,7 +74,7 @@ pip install orbit-converter
    python converter_gui.py
    ```
 
-To update, click **Check for updates** in the app. It installs the latest release and checks each file against its checksum before replacing anything.
+To update, click **Check for updates** in the app. It installs the latest release only after checking its signature and every file's checksum.
 
 ## Desktop app
 
