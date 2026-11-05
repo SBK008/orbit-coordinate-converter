@@ -4,6 +4,15 @@ What changed in each release, newest first. Release dates are on the
 [releases page](https://github.com/SBK008/orbit-coordinate-converter/releases).
 Versions follow [semantic versioning](https://semver.org).
 
+## 1.5.0
+
+### Added
+- **Only the first N points:** a new box in the app's Output section, and
+  `--limit N` on the command line, writes just the first N points and stops
+  reading the rest of the file. Works for CSV, OEM, and NAIRAS output. With a
+  NAIRAS time step, it counts the points that are kept. Blank or 0 keeps every
+  point, as before.
+
 ## 1.4.1
 
 ### Fixed

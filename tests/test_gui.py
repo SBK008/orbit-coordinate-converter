@@ -131,3 +131,24 @@ def test_bad_nairas_step_is_refused_before_starting(app, tmp_path, step):
     app._start()
     assert app.worker is None
     assert "time step" in app.messages_shown[-1]
+
+
+def test_limit_keeps_only_the_first_points(app, tmp_path):
+    src = tmp_path / "orbit.oem"
+    src.write_text(oem_text([({}, [f"2026-01-01T00:{i:02d}:00 6778.137 0 0" for i in range(10)])]))
+    app.input_path.set(str(src))
+    app.separator.set("nairas")
+    app.limit.set("3")
+    assert run(app).startswith("Done. Wrote 3 points")
+    rows = [r for r in open(app.output_path.get()) if not r.startswith("#")]
+    assert len(rows) == 3
+
+
+def test_bad_limit_is_refused_before_starting(app, tmp_path):
+    src = tmp_path / "orbit.oem"
+    src.write_text(oem_text([({}, ["2026-01-01T00:00:00 6778.137 0 0"])]))
+    app.input_path.set(str(src))
+    app.limit.set("abc")
+    app._start()
+    assert app.worker is None
+    assert "whole number" in app.messages_shown[-1]

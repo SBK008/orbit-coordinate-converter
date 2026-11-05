@@ -100,7 +100,7 @@ Keep Terminal open while the app is running.
 2. Pick the options:
    - **OEM files:** epoch format, and fast mode for space-fixed frames
    - **CSV files:** the names of your X, Y, and Z columns
-   - **Output:** comma separated, space separated, or NAIRAS trajectory, and whether to include column names
+   - **Output:** comma separated, space separated, or NAIRAS trajectory, whether to include column names, and **Only the first ___ points** if you want just the start of the file
 3. Choose where to save and click **Convert**.
 
 ## Command line
@@ -121,6 +121,9 @@ xyz-to-lla orbit.oem output.txt --separator space --no-header
 
 # NAIRAS trajectory, one point per minute
 xyz-to-lla orbit.oem trajectory_1.txt --nairas --step 60
+
+# Only the first 600 points
+xyz-to-lla orbit.oem trajectory_1.txt --nairas --limit 600
 ```
 
 If you downloaded the zip, use `python xyz_to_lla.py` in place of `xyz-to-lla`.
@@ -135,6 +138,7 @@ If you downloaded the zip, use `python xyz_to_lla.py` in place of `xyz-to-lla`.
 | `--no-header` | Leave out the column names line (or the `#` comment lines with `--nairas`). |
 | `--nairas` | OEM only: write a NAIRAS trajectory file. |
 | `--step SECONDS` | With `--nairas`: keep one point per this many seconds (default 0 keeps all). |
+| `--limit N` | Write only the first N points (default 0 keeps all). |
 | `--chunksize N` | Rows processed at a time. |
 | `--version` | Show the version. |
 
@@ -175,7 +179,7 @@ Choose **NAIRAS trajectory** in the app, or use `--nairas`. The output matches t
 
 Notes:
 
-- NASA's sample files use one point per minute. Long, high-rate OEM files can produce very large trajectories, so `--step 60` (or the "Keep one point every" box) is a good starting point.
+- NASA's sample files use one point per minute. Long, high-rate OEM files can produce very large trajectories, so `--step 60` (or the "Keep one point every" box) is a good starting point. To keep just the start of a file, use **Only the first ___ points** in the app or `--limit 600`.
 - Altitude is height above the WGS84 ellipsoid. NASA's aircraft and balloon files use barometric altitude, which can differ by tens of meters. For spacecraft this makes no practical difference.
 - The CCMC uploader checks file names: use only letters, numbers, and underscores (like `trajectory_1.txt`) and keep the file in a folder with no spaces in its path. The app suggests a safe name for you.
 
