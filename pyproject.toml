@@ -7,15 +7,19 @@ name = "coordinate-converter"
 dynamic = ["version"]
 description = "Convert ECEF X/Y/Z and CCSDS OEM orbit files to WGS84 latitude, longitude and altitude"
 requires-python = ">=3.11"
+# Lower bounds are the oldest versions the tests run against (see the
+# "oldest dependencies" job in tests.yml). Upper bounds stop at the next major
+# version, so a breaking release can't reach users before it's tested.
+# Dependabot opens a pull request to raise them.
 dependencies = [
-    "numpy",
-    "pandas",
-    "pyproj",
-    "astropy",
+    "numpy>=1.24,<3",
+    "pandas>=2.0,<4",
+    "pyproj>=3.6,<4",
+    "astropy>=6.0,<9",
 ]
 
 [project.optional-dependencies]
-test = ["pytest"]
+test = ["pytest>=7"]
 
 [project.scripts]
 # Command line: xyz-to-lla input.csv output.csv --separator space
