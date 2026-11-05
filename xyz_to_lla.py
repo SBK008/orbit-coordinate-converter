@@ -86,10 +86,11 @@ Usage (in your own code):
 
 # Version of the whole app. Bump this when you push an update: pip and the
 # GUI's "Check for updates" button both read it from here.
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 
 import argparse
 import contextlib
+import math
 import os
 import sys
 import tempfile
@@ -156,6 +157,17 @@ def _separator(name):
     return SEPARATORS[name]
 
 
+def _read_umask():
+    # os.umask can only be read by setting it, which changes it for the whole
+    # process. Do that once here, at import, before the app starts any threads.
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+_UMASK = _read_umask()
+
+
 @contextlib.contextmanager
 def _output_file(out_path):
     """
@@ -171,9 +183,7 @@ def _output_file(out_path):
         with f:
             yield f
         # mkstemp files are private (0600); give the output normal permissions
-        umask = os.umask(0)
-        os.umask(umask)
-        os.chmod(tmp, 0o666 & ~umask)
+        os.chmod(tmp, 0o666 & ~_UMASK)
         os.replace(tmp, out_path)
     except BaseException:
         f.close()
@@ -416,6 +426,8 @@ def _iter_oem_batches(path, chunksize):
                     raise OEMError(f"Line {n}: data line needs at least an epoch and X Y Z, got: {line}")
                 try:
                     x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
+                    if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
+                        raise ValueError
                 except ValueError:
                     raise OEMError(f"Line {n}: could not read X Y Z as numbers: {line}")
                 lines.append(n)
@@ -736,15 +748,28 @@ def _nairas_rows(t_ms, lat, lon, alt_m):
     ])
 
 
+def check_step(step_seconds):
+    """Return the NAIRAS time step in whole milliseconds, or raise ConverterError."""
+    try:
+        step = float(step_seconds)
+    except (TypeError, ValueError):
+        step = math.nan
+    if not math.isfinite(step) or step < 0:
+        raise ConverterError("The time step must be a number of seconds, 0 or more.")
+    step_ms = int(round(step * 1000))
+    if step > 0 and step_ms == 0:
+        raise ConverterError("The time step must be 0 (keep every point) or at least "
+                             "0.001 seconds.")
+    return step_ms
+
+
 def convert_oem_nairas(in_path, out_path, chunksize, fast=False, step_seconds=0, header=True,
                        progress=None):
     """
     Write an OEM file as a NAIRAS trajectory input file. step_seconds > 0 keeps
     only the first point in each step_seconds window (RaD-X files use 60 s).
     """
-    if step_seconds < 0:
-        raise ConverterError("The time step cannot be negative.")
-    step_ms = int(round(step_seconds * 1000))
+    step_ms = check_step(step_seconds)
     total = 0
     read = 0
     segments = 0
@@ -803,6 +828,10 @@ def check_paths(in_path, out_path):
     """Refuse a missing input, and an output that would overwrite the input."""
     if not os.path.isfile(in_path):
         raise ConverterError(f"Input file not found: {in_path}")
+    if os.path.isdir(out_path):
+        raise ConverterError(f"{out_path} is a folder. Choose a file name to save to.")
+    # samefile, not comparing the text, catches another name for the same file,
+    # such as Orbit.oem and orbit.oem on Windows and macOS
     if os.path.exists(out_path) and os.path.samefile(in_path, out_path):
         raise ConverterError("The output file must be different from the input file.")
 

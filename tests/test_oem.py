@@ -101,6 +101,10 @@ def test_teme_frame(write, tmp_path):
     (oem_text([({"REF_FRAME": None}, [])]), "missing REF_FRAME"),
     (oem_text([({}, ["2026-01-01T00:00:00 1 2"])]), "at least an epoch"),
     (oem_text([({}, ["2026-01-01T00:00:00 1 two 3"])]), "as numbers"),
+    # These used to be accepted and written out as empty lat, lon, and alt
+    (oem_text([({}, ["2026-01-01T00:00:00 nan 0 0"])]), "as numbers"),
+    (oem_text([({}, ["2026-01-01T00:00:00 6778 inf 0"])]), "as numbers"),
+    (oem_text([({}, ["2026-01-01T00:00:00 6778 0 1e999"])]), "as numbers"),
     (oem_text([({}, ["2026-02-30T00:00:00 6778 0 0"])]), "not a real date"),
     (oem_text([({}, ["2026-01-01T25:00:00 6778 0 0"])]), "not a real date"),
     (oem_text([({}, ["2026/01/01 6778 0 0"])]), "unrecognized|not in a supported"),

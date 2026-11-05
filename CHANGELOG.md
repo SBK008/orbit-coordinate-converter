@@ -4,6 +4,32 @@ What changed in each release, newest first. Release dates are on the
 [releases page](https://github.com/SBK008/orbit-coordinate-converter/releases).
 Versions follow [semantic versioning](https://semver.org).
 
+## 1.4.1
+
+### Fixed
+- The desktop app could overwrite the input file when the output name differed
+  from it only in letter case (like `Orbit.oem` and `orbit.oem`), which is the
+  same file on Windows and macOS. The app now runs the same same-file check as
+  the command line.
+- Choosing a folder as the output now gives a clear message before converting,
+  instead of a Python error after the whole file was read.
+- OEM data lines with `nan`, `inf`, or out-of-range numbers are now refused
+  with the line number, the same as CSV input. They used to be written out as
+  empty latitude, longitude, and altitude.
+- A NAIRAS time step of `nan` or `inf` no longer crashes, and a step under one
+  millisecond is refused instead of quietly keeping every point.
+- Output file permissions are worked out once at startup, so a conversion can
+  no longer briefly change the process umask while the updater is writing
+  files.
+
+### Changed
+- The README links the zip download to the latest release, not the newest
+  code on `main`, and has a new pitch, badges, and sections on verifying and
+  citing releases.
+- Added `CITATION.cff`, so GitHub shows a "Cite this repository" button.
+- Fixed the Dependabot config, which GitHub had rejected, so Python package
+  updates are proposed again.
+
 ## 1.4.0: Supply chain and distribution
 
 ### Added
