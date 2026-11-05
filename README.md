@@ -14,7 +14,7 @@ Convert Earth-centered (ECEF) X/Y/Z coordinates and CCSDS OEM orbit files to WGS
 - **NAIRAS trajectory export:** OEM files can be saved in the exact trajectory format used by NASA's NAIRAS radiation model on CCMC Runs-on-Request.
 - **Large files:** processed in chunks, so memory stays flat. Tested on a 1 GB, 20 million row CSV.
 - **Safe writes:** a failed or stopped run never leaves a half-written output file.
-- **Built-in updates:** the app installs only published releases, and checks every downloaded file against the release's SHA-256 checksums.
+- **Signed updates:** the app installs only published releases, and checks every file against SHA-256 checksums signed with the maintainer's offline key.
 
 Standalone apps for Windows, macOS, and Linux are planned. See the [roadmap](https://github.com/SBK008/orbit-coordinate-converter/blob/main/ROADMAP.md) for what's coming next.
 
