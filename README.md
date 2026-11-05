@@ -4,6 +4,7 @@
 [![PyPI](https://img.shields.io/pypi/v/orbit-converter)](https://pypi.org/project/orbit-converter/)
 [![Python](https://img.shields.io/pypi/pyversions/orbit-converter)](https://pypi.org/project/orbit-converter/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](https://github.com/SBK008/orbit-coordinate-converter/blob/main/LICENSE)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23986346.svg)](https://doi.org/10.5281/zenodo.23986346)
 
 Convert Earth-centered (ECEF) X/Y/Z coordinates and CCSDS OEM orbit files to WGS84 latitude, longitude, and altitude. Includes a desktop app and a command-line tool, and handles files with millions of points.
 
@@ -188,7 +189,9 @@ To check a release yourself, see [Verifying a release yourself](https://github.c
 
 ## Citing
 
-If this tool helps your research, please cite it. GitHub's **Cite this repository** button (in the About section) gives APA and BibTeX from [`CITATION.cff`](https://github.com/SBK008/orbit-coordinate-converter/blob/main/CITATION.cff).
+If this tool helps your research, please cite it. Every release is archived on Zenodo, and [doi:10.5281/zenodo.23986346](https://doi.org/10.5281/zenodo.23986346) always points to the latest version. Zenodo also gives each release its own DOI if you need to cite an exact version.
+
+GitHub's **Cite this repository** button (in the About section) gives APA and BibTeX from [`CITATION.cff`](https://github.com/SBK008/orbit-coordinate-converter/blob/main/CITATION.cff).
 
 ## Publishing an update (maintainer notes)
 

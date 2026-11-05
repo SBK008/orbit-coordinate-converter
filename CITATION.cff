@@ -16,8 +16,10 @@ authors:
 version: 1.4.1
 date-released: 2026-11-05
 license: MIT
+# Zenodo concept DOI: always resolves to the latest release
+doi: "10.5281/zenodo.23986346"
 repository-code: "https://github.com/SBK008/orbit-coordinate-converter"
-url: "https://pypi.org/project/orbit-converter/"
+url: "https://github.com/SBK008/orbit-coordinate-converter"
 keywords:
   - ECEF
   - WGS84
