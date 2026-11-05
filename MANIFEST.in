@@ -1,0 +1,5 @@
+# Extra files for the source package (the wheel only needs the .py files)
+include CHANGELOG.md SECURITY.md requirements.txt
+recursive-include tests *.py
+recursive-include tests/data *
+recursive-include examples *

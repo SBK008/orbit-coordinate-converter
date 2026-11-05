@@ -1,4 +1,6 @@
-numpy
-pandas
-pyproj
-astropy
+# Same bounds as pyproject.toml
+numpy>=1.24,<3
+pandas>=2.0,<4
+pyproj>=3.6,<4
+astropy>=6.0,<9
+cryptography>=42,<51

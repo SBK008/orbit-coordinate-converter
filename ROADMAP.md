@@ -22,16 +22,16 @@ so you can follow progress there. Have an idea or need? [Open an issue](https://
 - [x] Downloads are HTTPS only from GitHub, and size-limited
 - [x] Output temp files can't be redirected by a planted symlink
 
-## 1.4.0: Supply chain and distribution
+## 1.4.0: Supply chain and distribution (in review)
 
 [Track progress](https://github.com/SBK008/orbit-coordinate-converter/milestone/1)
 
-- [ ] Publish to PyPI with trusted publishing, so install is `pip install coordinate-converter`
-- [ ] Sign releases (for example with Sigstore) so the updater can verify who
-      published them, not just that files arrived intact
+- [x] Publish to PyPI with trusted publishing, so install is `pip install orbit-converter`
+- [x] Sign releases with an offline minisign key, checked by the updater, plus
+      Sigstore attestations from the release workflow
 - [x] Pin GitHub Actions to commit SHAs and turn on Dependabot
-- [ ] Set version bounds on dependencies
-- [ ] `CHANGELOG.md`
+- [x] Set version bounds on dependencies
+- [x] `CHANGELOG.md`
 
 ## 1.5.0: Standalone apps for Windows, macOS, and Linux
 
@@ -70,7 +70,7 @@ Download, double-click, done. No Python needed.
         means large files get split across sheets or a warning
       - **JSON:** for other programs and scripts
       - Written in chunks like today's output, so large files still use little memory
-      - Excel support as an optional install (`pip install "coordinate-converter[excel]"`)
+      - Excel support as an optional install (`pip install "orbit-converter[excel]"`)
         so the base app stays small
 - [ ] XML OEM input (only text/KVN is supported today)
 - [ ] Reverse conversion: latitude, longitude, altitude back to ECEF X/Y/Z

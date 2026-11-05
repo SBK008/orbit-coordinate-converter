@@ -1,21 +1,30 @@
-# Runs when a GitHub release is published. Checks that the tagged commit is on
-# main and that the tag matches __version__ in xyz_to_lla.py, then attaches
-# SHA256SUMS, which the in-app updater uses to verify every file it downloads.
+# Runs when a GitHub release is published:
+#   1. Checks that the tagged commit is on main and that the tag matches
+#      __version__ in xyz_to_lla.py, then hashes the updater's files into
+#      SHA256SUMS and builds the PyPI packages.
+#   2. Signs SHA256SUMS and the packages with Sigstore (GitHub artifact
+#      attestations), a public record of which workflow and commit built them.
+#   3. Attaches SHA256SUMS and the packages to the release.
+#   4. Publishes the packages to PyPI with trusted publishing (no stored token).
+#
+# The in-app updater also needs SHA256SUMS.minisig, which the maintainer makes
+# offline with scripts/sign_release.sh and attaches by hand. That key never
+# touches GitHub.
 name: release
 
 on:
   release:
     types: [published]
 
-# Nothing by default. The job below asks only for what it needs.
+# Nothing by default. Each job asks only for what it needs.
 permissions: {}
 
 jobs:
-  checksums:
-    name: Attach SHA256SUMS
+  build:
+    name: Check, hash, and build
     runs-on: ubuntu-24.04
     permissions:
-      contents: write   # needed to upload a file to the release
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -44,12 +53,81 @@ jobs:
 
       - name: Hash the files the updater installs
         run: |
-          files=$(python3 -I -c "import ast; t = ast.parse(open('updater.py').read()); print(' '.join(next(ast.literal_eval(n.value) for n in t.body if isinstance(n, ast.Assign) and getattr(n.targets[0], 'id', '') == 'UPDATE_FILES')))")
-          sha256sum $files > SHA256SUMS
+          read -ra files <<< "$(python3 -I -c "import ast; t = ast.parse(open('updater.py').read()); print(' '.join(next(ast.literal_eval(n.value) for n in t.body if isinstance(n, ast.Assign) and getattr(n.targets[0], 'id', '') == 'UPDATE_FILES')))")"
+          sha256sum "${files[@]}" > SHA256SUMS
           cat SHA256SUMS
 
-      - name: Attach SHA256SUMS to the release
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Build the PyPI packages
+        run: |
+          python -m pip install "build>=1.2,<2"
+          python -m build
+          ls -l dist
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-files
+          path: |
+            SHA256SUMS
+            dist/
+          if-no-files-found: error
+
+  sign:
+    name: Sign with Sigstore
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write       # proves this workflow's identity to Sigstore
+      attestations: write   # stores the signed attestation on GitHub
+      contents: read
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            SHA256SUMS
+            dist/*
+
+  attach:
+    name: Attach files to the release
+    needs: sign
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write   # needed to upload files to the release
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+
+      - name: Upload SHA256SUMS and the packages
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$TAG" SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
+        run: gh release upload "$TAG" SHA256SUMS dist/* --clobber --repo "$GITHUB_REPOSITORY"
+
+  pypi:
+    name: Publish to PyPI
+    needs: sign
+    runs-on: ubuntu-24.04
+    # Set up on PyPI as a trusted publisher for this repo, this workflow file,
+    # and this environment. No API token is stored anywhere.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/orbit-converter/
+    permissions:
+      id-token: write   # proves this workflow's identity to PyPI
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-files
+
+      # Also uploads PEP 740 attestations, so PyPI shows where each file came from
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: dist/

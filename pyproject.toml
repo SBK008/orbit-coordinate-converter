@@ -1,21 +1,53 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "coordinate-converter"
+# The install name on PyPI: pip install orbit-converter
+name = "orbit-converter"
 dynamic = ["version"]
-description = "Convert ECEF X/Y/Z and CCSDS OEM orbit files to WGS84 latitude, longitude and altitude"
+description = "Convert ECEF X/Y/Z and CCSDS OEM orbit files to WGS84 latitude, longitude, and altitude"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Samuel Braman" }]
 requires-python = ">=3.11"
+keywords = ["ecef", "wgs84", "ccsds", "oem", "orbit", "geodesy", "coordinates", "nairas"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Environment :: X11 Applications",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+# Lower bounds are the oldest versions the tests run against (see the
+# "oldest dependencies" job in tests.yml). Upper bounds stop at the next major
+# version, so a breaking release can't reach users before it's tested.
+# Dependabot opens a pull request to raise them.
 dependencies = [
-    "numpy",
-    "pandas",
-    "pyproj",
-    "astropy",
+    "numpy>=1.24,<3",
+    "pandas>=2.0,<4",
+    "pyproj>=3.6,<4",
+    "astropy>=6.0,<9",
+    # Checks the release signature in the updater
+    "cryptography>=42,<51",
 ]
 
+[project.urls]
+Homepage = "https://github.com/SBK008/orbit-coordinate-converter"
+Changelog = "https://github.com/SBK008/orbit-coordinate-converter/blob/main/CHANGELOG.md"
+Issues = "https://github.com/SBK008/orbit-coordinate-converter/issues"
+Security = "https://github.com/SBK008/orbit-coordinate-converter/blob/main/SECURITY.md"
+
 [project.optional-dependencies]
-test = ["pytest"]
+test = ["pytest>=7"]
 
 [project.scripts]
 # Command line: xyz-to-lla input.csv output.csv --separator space

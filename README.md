@@ -14,9 +14,9 @@ Convert Earth-centered (ECEF) X/Y/Z coordinates and CCSDS OEM orbit files to WGS
 - **NAIRAS trajectory export:** OEM files can be saved in the exact trajectory format used by NASA's NAIRAS radiation model on CCMC Runs-on-Request.
 - **Large files:** processed in chunks, so memory stays flat. Tested on a 1 GB, 20 million row CSV.
 - **Safe writes:** a failed or stopped run never leaves a half-written output file.
-- **Built-in updates:** the app installs only published releases, and checks every downloaded file against the release's SHA-256 checksums.
+- **Signed updates:** the app installs only published releases, and checks every file against SHA-256 checksums signed with the maintainer's offline key.
 
-Standalone apps for Windows, macOS, and Linux are planned. See the [roadmap](ROADMAP.md) for what's coming next.
+Standalone apps for Windows, macOS, and Linux are planned. See the [roadmap](https://github.com/SBK008/orbit-coordinate-converter/blob/main/ROADMAP.md) for what's coming next.
 
 ## Install
 
@@ -25,7 +25,7 @@ Standalone apps for Windows, macOS, and Linux are planned. See the [roadmap](ROA
 Requires Python 3.11 or newer.
 
 ```
-pip install git+https://github.com/SBK008/orbit-coordinate-converter.git
+pip install orbit-converter
 ```
 
 This installs the dependencies and two commands:
@@ -36,7 +36,14 @@ This installs the dependencies and two commands:
 To update:
 
 ```
-pip install --upgrade git+https://github.com/SBK008/orbit-coordinate-converter.git
+pip install --upgrade orbit-converter
+```
+
+Installed with pip before version 1.4.0? That copy was registered under an older name, so switch over once:
+
+```
+pip uninstall coordinate-converter orbit-converter
+pip install orbit-converter
 ```
 
 **Option 2: download the zip**
@@ -159,11 +166,16 @@ GitHub Actions runs everything on Linux, macOS, and Windows on every push. The b
 
 ## Publishing an update (maintainer notes)
 
-1. Create a branch for the change, for example `v1.3.0`.
-2. Make the changes on that branch and raise `__version__` in `xyz_to_lla.py`, for example `1.2.2` to `1.3.0`.
+1. Create a branch for the change, for example `v1.4.0`.
+2. Make the changes on that branch, raise `__version__` in `xyz_to_lla.py`, and add a section to `CHANGELOG.md`.
 3. Open a pull request into `main` and wait for the tests to pass.
 4. Merge the pull request.
-5. Go to **Releases > Draft a new release**, create a tag named after the version (like `v1.3.0`) on `main`, list what changed, and publish.
-6. The **release** workflow checks that the tag matches `__version__` and attaches `SHA256SUMS` to the release. The app's update button won't install a release until that file is there, so check the Actions tab for a green check.
+5. Go to **Releases > Draft a new release**, create a tag named after the version (like `v1.4.0`) on `main`, paste the changelog section, and publish.
+6. The **release** workflow checks the tag, signs the files with Sigstore, attaches `SHA256SUMS` and the packages, and publishes to PyPI. Wait for a green check on the Actions tab.
+7. On your own computer, sign the release with your offline key:
+   ```
+   scripts/sign_release.sh v1.4.0
+   ```
+   It checks that `SHA256SUMS` matches the files at the tag before signing. Attach the `SHA256SUMS.minisig` it makes to the release (**Edit release**, drag the file in, **Update release**).
 
-The release is how the app's update button knows there is something new. Code merged into `main` without a release is never sent to users.
+The app's update button won't install a release until both `SHA256SUMS` and `SHA256SUMS.minisig` are attached. Code merged into `main` without a release is never sent to users.

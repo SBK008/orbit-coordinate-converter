@@ -12,8 +12,8 @@ Install:
     pip install -r requirements.txt
     (astropy is only used for OEM files in a space-fixed frame)
 
-    Or install the whole app with pip (see README.md), which adds the
-    commands xyz-to-lla and coordinate-converter.
+    Or install the whole app with pip install orbit-converter, which adds
+    the commands xyz-to-lla and coordinate-converter.
 
 Desktop app:
     python converter_gui.py
@@ -86,7 +86,7 @@ Usage (in your own code):
 
 # Version of the whole app. Bump this when you push an update: pip and the
 # GUI's "Check for updates" button both read it from here.
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 import argparse
 import contextlib
