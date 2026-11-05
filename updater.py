@@ -6,25 +6,30 @@ How it works:
     1. Ask GitHub for the latest published release and read its version from
        the release tag (for example v1.3.0). Drafts and pre-releases are ignored.
     2. If that release is newer than the version running now, download its
-       SHA256SUMS file, then every file in UPDATE_FILES exactly as it was at
-       that tag. Untagged work on the main branch is never installed.
-    3. Check every file against SHA256SUMS, check that it is valid Python, and
+       SHA256SUMS file and its SHA256SUMS.minisig signature, and check the
+       signature against TRUSTED_KEYS. The private key is kept offline.
+    3. Download every file in UPDATE_FILES exactly as it was at that tag.
+       Untagged work on the main branch is never installed.
+    4. Check every file against SHA256SUMS, check that it is valid Python, and
        check that xyz_to_lla.py says the same version as the tag.
-    4. Downloads are HTTPS only, to GitHub's own hosts (redirects included),
+    5. Downloads are HTTPS only, to GitHub's own hosts (redirects included),
        and capped at MAX_DOWNLOAD_BYTES.
-    5. Only then write them next to the running copy, keeping the old ones as
+    6. Only then write them next to the running copy, keeping the old ones as
        .bak files, so a failed or tampered download never leaves a
        half-updated app.
 
 To publish an update: raise __version__ in xyz_to_lla.py, merge it into main,
 and publish a GitHub release tagged with that version. The release workflow
-(.github/workflows/release.yml) attaches SHA256SUMS automatically.
+(.github/workflows/release.yml) attaches SHA256SUMS automatically. Then sign
+it offline with scripts/sign_release.sh and attach SHA256SUMS.minisig.
 
 If the app was installed with pip, the files live in Python's own folder and
 are not overwritten here. pip_upgrade_command() gives the command to run.
 """
 
+import base64
 import hashlib
+import importlib.metadata
 import json
 import os
 import re
@@ -44,8 +49,22 @@ GITHUB_REPO = "orbit-coordinate-converter"
 # The release workflow hashes this same list into SHA256SUMS.
 UPDATE_FILES = ["xyz_to_lla.py", "converter_gui.py", "updater.py"]
 
+# Name on PyPI (pip install orbit-converter), and the name used before 1.4.0
+PYPI_NAME = "orbit-converter"
+OLD_PIP_NAME = "coordinate-converter"
+
 # Name of the checksum file attached to each release
 CHECKSUM_ASSET = "SHA256SUMS"
+# Signature of that file, made offline by the maintainer with minisign
+SIGNATURE_ASSET = CHECKSUM_ASSET + ".minisig"
+
+# Public keys allowed to sign releases: the second line of a minisign .pub
+# file. The matching private key is kept offline, never on GitHub, so someone
+# who takes over the GitHub account still can't publish a release this
+# updater accepts.
+TRUSTED_KEYS = [
+    "RELEASE_KEY_PLACEHOLDER",
+]
 
 TIMEOUT_SECONDS = 15
 # The three app files are well under 1 MB. Anything far bigger is refused.
@@ -80,10 +99,28 @@ def repo_url():
     return f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}"
 
 
+def _pip_has(name):
+    """True when pip has a package by this name installed."""
+    try:
+        importlib.metadata.distribution(name)
+    except importlib.metadata.PackageNotFoundError:
+        return False
+    return True
+
+
 def pip_upgrade_command(version=None):
-    """The pip command to upgrade, pinned to a release when its version is known."""
-    pin = f"@v{version}" if version else ""
-    return f"pip install --upgrade git+{repo_url()}.git{pin}"
+    """The pip command to upgrade, pinned to a release when its version is known.
+
+    Copies installed from GitHub before 1.4.0 are registered as
+    "coordinate-converter", so the old name is removed first. Otherwise both
+    names would claim the same files. Each command goes on its own line, which
+    every terminal runs in order when pasted.
+    """
+    pin = f"=={version}" if version else ""
+    command = f"pip install --upgrade {PYPI_NAME}{pin}"
+    if _pip_has(OLD_PIP_NAME):
+        command = f"pip uninstall -y {OLD_PIP_NAME}\n{command}"
+    return command
 
 
 def _api_latest_url():
@@ -147,7 +184,7 @@ def read_limited(response, what):
 def _fetch(url, what, accept=None):
     """Download url and return its bytes. what names it in error messages."""
     check_url(url)
-    req = urllib.request.Request(url, headers={"User-Agent": "coordinate-converter-updater"})
+    req = urllib.request.Request(url, headers={"User-Agent": "orbit-converter-updater"})
     if accept:
         req.add_header("Accept", accept)
     try:
@@ -213,6 +250,65 @@ def parse_checksums(text):
     return sums
 
 
+def _b64(text, size, what):
+    try:
+        raw = base64.b64decode(text.strip(), validate=True)
+    except ValueError:
+        raw = b""
+    if len(raw) != size:
+        raise UpdateError(f"{what} is not in the expected format, so nothing was changed.")
+    return raw
+
+
+def verify_signature(data, signature_text, tag, keys=None):
+    """
+    Raise UpdateError unless signature_text is a valid minisign signature of
+    data, made by one of keys (TRUSTED_KEYS by default), whose trusted comment
+    names this release tag.
+    """
+    try:
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    except ImportError:
+        raise UpdateError("Checking the release signature needs the cryptography package. "
+                          "Install it with:\npip install cryptography\nthen try again.")
+    what = f"{SIGNATURE_ASSET} on GitHub"
+    lines = [line.strip() for line in signature_text.strip().splitlines()]
+    prefix = "trusted comment: "
+    if len(lines) != 4 or not lines[0].startswith("untrusted comment:") \
+            or not lines[2].startswith(prefix):
+        raise UpdateError(f"{what} is not in the expected format, so nothing was changed.")
+    blob = _b64(lines[1], 74, what)
+    algorithm, key_id, signature = blob[:2], blob[2:10], blob[10:]
+    comment = lines[2][len(prefix):]
+    comment_signature = _b64(lines[3], 64, what)
+    if algorithm not in (b"ED", b"Ed"):
+        raise UpdateError(f"{what} uses a signature type this app does not accept.")
+
+    public_key = None
+    for key in TRUSTED_KEYS if keys is None else keys:
+        raw = _b64(key, 42, "A trusted release key in updater.py")
+        if raw[:2] == b"Ed" and raw[2:10] == key_id:
+            public_key = Ed25519PublicKey.from_public_bytes(raw[10:])
+    if public_key is None:
+        raise UpdateError("This release was not signed by the app's release key, so nothing "
+                          "was changed.")
+
+    # minisign signs a BLAKE2b-512 hash of the file ("ED"), or the file itself
+    # in its older format ("Ed"), then signs the signature plus the comment
+    message = hashlib.blake2b(data, digest_size=64).digest() if algorithm == b"ED" else data
+    try:
+        public_key.verify(signature, message)
+        public_key.verify(comment_signature, signature + comment.encode("utf-8"))
+    except InvalidSignature:
+        raise UpdateError("The release signature does not match, so nothing was changed. "
+                          "The release may have been altered.")
+    # Ties the signature to this release, so an old signature can't be reused
+    if tag not in comment.split():
+        raise UpdateError(f"The release signature is for a different release than {tag}, so "
+                          "nothing was changed.")
+
+
 def check(current_version):
     """
     Return the newest released version if it is newer than current_version,
@@ -225,8 +321,9 @@ def check(current_version):
 def install(current_version):
     """
     Download and install the newest release. Returns the new version string.
-    Nothing is written unless every file downloads, matches SHA256SUMS, and is
-    valid Python.
+    Nothing is written unless SHA256SUMS carries a valid signature from a
+    trusted key, and every file downloads, matches SHA256SUMS, and is valid
+    Python.
     """
     if installed_with_pip():
         raise UpdateError("This copy was installed with pip, so update it with:\n"
@@ -238,8 +335,18 @@ def install(current_version):
         raise UpdateError(f"Version {latest} is still being prepared on GitHub (its "
                           f"{CHECKSUM_ASSET} file is not there yet), so nothing was changed. "
                           "Try again in a few minutes.")
+    if SIGNATURE_ASSET not in assets:
+        raise UpdateError(f"Version {latest} is still being prepared on GitHub (its "
+                          f"{SIGNATURE_ASSET} signature is not there yet), so nothing was "
+                          "changed. Try again later.")
+    sums_data = _fetch(assets[CHECKSUM_ASSET], CHECKSUM_ASSET)
     try:
-        sums = parse_checksums(_fetch(assets[CHECKSUM_ASSET], CHECKSUM_ASSET).decode("utf-8"))
+        signature_text = _fetch(assets[SIGNATURE_ASSET], SIGNATURE_ASSET).decode("utf-8")
+    except UnicodeDecodeError:
+        raise UpdateError(f"{SIGNATURE_ASSET} on GitHub is not a text file.")
+    verify_signature(sums_data, signature_text, tag)
+    try:
+        sums = parse_checksums(sums_data.decode("utf-8"))
     except UnicodeDecodeError:
         raise UpdateError(f"{CHECKSUM_ASSET} on GitHub is not a text file.")
 

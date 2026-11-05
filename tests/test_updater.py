@@ -1,5 +1,6 @@
 """The in-app updater, with GitHub replaced by a fake so no network is used."""
 
+import base64
 import hashlib
 import io
 import json
@@ -7,6 +8,8 @@ import os
 from urllib.parse import urlparse
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 import updater
 
@@ -14,6 +17,28 @@ OLD = b'__version__ = "1.2.0"\n'
 NEW = b'__version__ = "1.3.0"\n'
 TAG = "v1.3.0"
 SUMS_URL = f"https://github.com/someone/converter/releases/download/{TAG}/SHA256SUMS"
+SIG_URL = SUMS_URL + ".minisig"
+
+
+class SigningKey:
+    """A throwaway signing key that writes minisign-format keys and signatures."""
+
+    def __init__(self, key_id=b"testkey1"):
+        self.private = Ed25519PrivateKey.generate()
+        self.key_id = key_id
+        raw = self.private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+        self.public = base64.b64encode(b"Ed" + key_id + raw).decode()
+
+    def sign(self, data, comment=f"orbit-converter {TAG}"):
+        signature = self.private.sign(hashlib.blake2b(data, digest_size=64).digest())
+        comment_signature = self.private.sign(signature + comment.encode())
+        return (f"untrusted comment: test signature\n"
+                f"{base64.b64encode(b'ED' + self.key_id + signature).decode()}\n"
+                f"trusted comment: {comment}\n"
+                f"{base64.b64encode(comment_signature).decode()}\n")
+
+
+RELEASE_KEY = SigningKey()
 
 
 def sums_for(files):
@@ -30,11 +55,15 @@ class FakeGitHub:
                       for name in updater.UPDATE_FILES}
         self.sums = sums_for(self.files)
         self.has_sums = True
+        self.has_sig = True
+        self.sig = None  # None: sign whatever self.sums is when it is fetched
         self.has_release = True
         self.fetched = []
 
     def release_json(self):
         assets = [{"name": "SHA256SUMS", "browser_download_url": SUMS_URL}] if self.has_sums else []
+        if self.has_sig:
+            assets.append({"name": "SHA256SUMS.minisig", "browser_download_url": SIG_URL})
         return json.dumps({"tag_name": self.tag, "assets": assets}).encode()
 
     def fetch(self, url, what, accept=None):
@@ -45,6 +74,8 @@ class FakeGitHub:
             return self.release_json()
         if url == SUMS_URL:
             return self.sums
+        if url == SIG_URL:
+            return (self.sig or RELEASE_KEY.sign(self.sums)).encode()
         for name, data in self.files.items():
             if url == updater._raw_url(self.tag, name):
                 return data
@@ -63,6 +94,7 @@ def github(monkeypatch, tmp_path):
     monkeypatch.setattr(updater, "APP_DIR", str(app))
     monkeypatch.setattr(updater, "GITHUB_OWNER", "someone")
     monkeypatch.setattr(updater, "GITHUB_REPO", "converter")
+    monkeypatch.setattr(updater, "TRUSTED_KEYS", [RELEASE_KEY.public])
     fake.app = app
     return fake
 
@@ -241,9 +273,17 @@ def test_refuses_to_overwrite_a_pip_install(github, monkeypatch):
         updater.install("1.2.0")
 
 
-def test_pip_command_pins_the_release():
-    assert updater.pip_upgrade_command("1.3.0").endswith(".git@v1.3.0")
-    assert updater.pip_upgrade_command().endswith(".git")
+def test_pip_command_pins_the_release(monkeypatch):
+    monkeypatch.setattr(updater, "_pip_has", lambda name: False)
+    assert updater.pip_upgrade_command("1.4.0") == "pip install --upgrade orbit-converter==1.4.0"
+    assert updater.pip_upgrade_command() == "pip install --upgrade orbit-converter"
+
+
+def test_pip_command_removes_the_old_package_name_first(monkeypatch):
+    monkeypatch.setattr(updater, "_pip_has", lambda name: name == "coordinate-converter")
+    lines = updater.pip_upgrade_command("1.4.0").splitlines()
+    assert lines == ["pip uninstall -y coordinate-converter",
+                     "pip install --upgrade orbit-converter==1.4.0"]
 
 
 def test_parse_checksums_accepts_sha256sum_output():
@@ -264,3 +304,93 @@ def test_real_repo_version_matches_this_code():
     here = os.path.dirname(os.path.abspath(updater.__file__))
     with open(os.path.join(here, "xyz_to_lla.py"), encoding="utf-8") as f:
         assert updater._version_in(f.read()) == xyz_to_lla.__version__
+
+
+# ---- Release signatures ------------------------------------------------------
+
+def test_missing_signature_changes_nothing(github):
+    github.has_sig = False
+    with pytest.raises(updater.UpdateError, match="signature is not there yet"):
+        updater.install("1.2.0")
+    assert_unchanged(github.app)
+
+
+def test_signature_from_another_key_changes_nothing(github):
+    github.sig = SigningKey(b"otherkey").sign(github.sums)
+    with pytest.raises(updater.UpdateError, match="not signed by the app's release key"):
+        updater.install("1.2.0")
+    assert_unchanged(github.app)
+
+
+def test_forged_key_id_changes_nothing(github):
+    # Right key ID, wrong private key: the signature itself must not verify
+    github.sig = SigningKey(RELEASE_KEY.key_id).sign(github.sums)
+    with pytest.raises(updater.UpdateError, match="signature does not match"):
+        updater.install("1.2.0")
+    assert_unchanged(github.app)
+
+
+def test_checksums_changed_after_signing_changes_nothing(github):
+    github.sig = RELEASE_KEY.sign(github.sums)
+    github.files["converter_gui.py"] = b"# swapped\n"
+    github.sums = sums_for(github.files)
+    with pytest.raises(updater.UpdateError, match="signature does not match"):
+        updater.install("1.2.0")
+    assert_unchanged(github.app)
+
+
+def test_edited_trusted_comment_changes_nothing(github):
+    lines = RELEASE_KEY.sign(github.sums, "orbit-converter v1.2.0").splitlines()
+    lines[2] = f"trusted comment: orbit-converter {TAG}"
+    github.sig = "\n".join(lines)
+    with pytest.raises(updater.UpdateError, match="signature does not match"):
+        updater.install("1.2.0")
+    assert_unchanged(github.app)
+
+
+def test_signature_for_another_release_changes_nothing(github):
+    github.sig = RELEASE_KEY.sign(github.sums, "orbit-converter v1.2.9")
+    with pytest.raises(updater.UpdateError, match="different release"):
+        updater.install("1.2.0")
+    assert_unchanged(github.app)
+
+
+@pytest.mark.parametrize("sig", ["", "not a signature", "a\nb\nc\nd",
+                                 "untrusted comment: x\n!!!\ntrusted comment: y\n!!!"])
+def test_malformed_signature_changes_nothing(github, sig):
+    github.sig = sig or " "
+    with pytest.raises(updater.UpdateError, match="expected format"):
+        updater.install("1.2.0")
+    assert_unchanged(github.app)
+
+
+# Made with the real minisign 0.12 tool, so the format is checked against it
+# rather than only against this test file's own signer.
+MINISIGN_PUBLIC = "RWR0fCuGbKO/gmjwMOR49wKR9FMH92w4RbMSX2UtuUR8cgoQkWf4INmC"
+MINISIGN_DATA = b"aaaa  xyz_to_lla.py\n"
+MINISIGN_PREHASHED = """untrusted comment: signature from minisign secret key
+RUR0fCuGbKO/gnzqS4cKasNxKl62lNNWKJbCHLudngTyNknVYlUBs1cs7N2EVWnoOeN/dlUKIH0+Ym3Hhg4zQYjFPoKKqq+C4QQ=
+trusted comment: test release
+sonU+pEgFKsxygqagf887GDiqizTyE42stM6OsjcYJc+ANPYbWh7kkcVFIUWb4z+iRV/ABrjXk2vIigW6AQdAQ==
+"""
+MINISIGN_LEGACY = """untrusted comment: signature from minisign secret key
+RWR0fCuGbKO/gr8zp53Da9zp0VovLvTRzA7g8R1m9rZZ3dZSVt1HN0OdaRejHpHfv1zIJLkyXoB9PAG1TGhViXbC/o9fZ387wg4=
+trusted comment: legacy
+rGJfWFJA2nKEx3V7sW9KNXp9jn3hvKE5cx7tCbwrBUcEVvzOjdgzI09B79mw2dCTrhmhgd59KU0zuPrWkbOQCw==
+"""
+
+
+@pytest.mark.parametrize("sig, word", [(MINISIGN_PREHASHED, "release"),
+                                       (MINISIGN_LEGACY, "legacy")])
+def test_real_minisign_signatures_verify(sig, word):
+    updater.verify_signature(MINISIGN_DATA, sig, word, keys=[MINISIGN_PUBLIC])
+    with pytest.raises(updater.UpdateError, match="does not match"):
+        updater.verify_signature(MINISIGN_DATA + b"x", sig, word, keys=[MINISIGN_PUBLIC])
+
+
+def test_release_key_is_set():
+    """The shipped updater must trust exactly the maintainer's real key."""
+    assert updater.TRUSTED_KEYS, "Add the release public key to TRUSTED_KEYS in updater.py"
+    for key in updater.TRUSTED_KEYS:
+        raw = base64.b64decode(key, validate=True)
+        assert len(raw) == 42 and raw[:2] == b"Ed", f"{key!r} is not a minisign public key"

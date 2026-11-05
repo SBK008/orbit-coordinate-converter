@@ -471,7 +471,7 @@ class ConverterApp:
             self.root.clipboard_append(updater.pip_upgrade_command(latest))
             messagebox.showinfo(APP_TITLE, f"Version {latest} is available (you have {current}).\n\n"
                                            "This copy was installed with pip. Close the app and run "
-                                           "this command (it is copied to your clipboard):\n\n"
+                                           "this (it is copied to your clipboard):\n\n"
                                            f"{updater.pip_upgrade_command(latest)}")
             return
         if self._converting():

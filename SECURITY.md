@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Only the latest release gets security fixes. Use **Check for updates** in the app, or `pip install --upgrade`, to stay current.
+Only the latest release gets security fixes. Use **Check for updates** in the app, or `pip install --upgrade orbit-converter`, to stay current.
 
 ## Reporting a vulnerability
 
@@ -20,19 +20,36 @@ The in-app updater downloads new code, so here is exactly what it trusts and che
 - **Releases only:** it asks GitHub for the latest published release. Drafts, pre-releases, and untagged changes on `main` are never installed.
 - **Source:** files are downloaded only over HTTPS from `api.github.com`, `raw.githubusercontent.com`, and the release's own download link. Certificate verification is never turned off.
 - **Fixed file list:** only the `.py` files named in `updater.py` are downloaded, exactly as they were at the release tag. Nothing else is fetched or run.
-- **Checksums:** every file must match the SHA-256 hash in the release's `SHA256SUMS` file, which the release workflow generates from the tagged code.
+- **Signature:** `SHA256SUMS` must carry a valid signature (`SHA256SUMS.minisig`) from the maintainer's release key, which is listed in `TRUSTED_KEYS` in `updater.py`. The private key is kept offline and never touches GitHub. The signature must also name the release's tag, so an old signature can't be reused for a new release.
+- **Checksums:** every file must match the SHA-256 hash in the signed `SHA256SUMS` file. The release workflow generates it from the tagged code, and the maintainer checks it against the tag before signing.
 - **Version check:** the release tag must look like a version number (`v1.3.0`) and must match `__version__` inside the downloaded code.
 - **All or nothing:** every file must download, match its checksum, and be valid Python before any file is replaced. Old versions are kept as `.bak` files.
 - **No downgrades:** an update is installed only if its version number is higher than the one running.
 - **pip installs are left alone:** copies installed with pip are never overwritten. pip handles those updates.
 
-**Limitation:** the checksums come from the same GitHub repository as the code. They catch damaged, partial, or swapped downloads and make sure you get exactly the files that were released, but they are not a signature. Someone who took over the maintainer's GitHub account could publish a malicious release with matching checksums. If you need stronger guarantees, install a specific release with pip and review changes before upgrading.
+**What this protects against:** damaged or swapped downloads, and a malicious release from someone who takes over the maintainer's GitHub account, since they would not have the offline signing key. It does not protect against the signing key itself being stolen. If that happens, the key will be replaced and announced here. Copies installed from a zip only trust the old key, so they will need a fresh download.
+
+## Verifying a release yourself
+
+Every release is signed two ways:
+
+- **Offline key (minisign):** the maintainer signs `SHA256SUMS` with a key kept off GitHub. Check it with [minisign](https://jedisct1.github.io/minisign/), using the public key from `TRUSTED_KEYS` in `updater.py`:
+  ```
+  minisign -Vm SHA256SUMS -P <public key>
+  sha256sum -c SHA256SUMS
+  ```
+- **Sigstore (GitHub artifact attestations):** the release workflow signs `SHA256SUMS` and the PyPI packages, recording which workflow and commit built them in Sigstore's public log. Check any of those files with the GitHub CLI:
+  ```
+  gh attestation verify orbit_converter-1.4.0-py3-none-any.whl --repo SBK008/orbit-coordinate-converter
+  ```
+- **PyPI:** packages are uploaded with trusted publishing, so no API token exists to steal, and PyPI shows each file's provenance on its download page.
 
 ## Build and dependency hygiene
 
 - **Pinned Actions:** every GitHub Action in `.github/workflows` is pinned to a full commit SHA, not a tag like `@v4`. A tag can be moved to different code. A commit SHA can't.
 - **Automatic update PRs:** Dependabot checks the Actions and Python packages weekly and opens a pull request for new versions. Each one must pass the full test suite before it can be merged.
-- **Least-privilege tokens:** the test workflow's token is read-only. The release workflow gets write access only in the one job that uploads `SHA256SUMS`.
+- **Tested version bounds:** each dependency has a lower bound that CI tests against and an upper bound below its next major version.
+- **Least-privilege tokens:** the test workflow's token is read-only. In the release workflow, each job gets only what it needs: only the upload job can write to the repository, and only the signing and PyPI jobs can request an identity token.
 
 ## Scope
 
