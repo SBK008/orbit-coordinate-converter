@@ -1,0 +1,55 @@
+# Runs when a GitHub release is published. Checks that the tagged commit is on
+# main and that the tag matches __version__ in xyz_to_lla.py, then attaches
+# SHA256SUMS, which the in-app updater uses to verify every file it downloads.
+name: release
+
+on:
+  release:
+    types: [published]
+
+# Nothing by default. The job below asks only for what it needs.
+permissions: {}
+
+jobs:
+  checksums:
+    name: Attach SHA256SUMS
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write   # needed to upload a file to the release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0        # full history, to check the tag is on main
+          persist-credentials: false
+
+      - name: Check the tagged commit is on main
+        run: |
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::The release tag points at a commit that is not on main. Release only from main, after the pull request is merged."
+            exit 1
+          fi
+
+      - name: Check the tag matches the app version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(sed -nE 's/^__version__ = "([^"]+)".*/\1/p' xyz_to_lla.py)
+          echo "Tag: $TAG  App version: $version"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Release tag $TAG does not match __version__ $version in xyz_to_lla.py"
+            exit 1
+          fi
+
+      - name: Hash the files the updater installs
+        run: |
+          files=$(python3 -I -c "import ast; t = ast.parse(open('updater.py').read()); print(' '.join(next(ast.literal_eval(n.value) for n in t.body if isinstance(n, ast.Assign) and getattr(n.targets[0], 'id', '') == 'UPDATE_FILES')))")
+          sha256sum $files > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Attach SHA256SUMS to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
