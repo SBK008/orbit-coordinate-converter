@@ -62,7 +62,7 @@ download page instead.
 
 ## Known limits
 
-- **Size:** about 230 MB, mostly astropy and pandas.
+- **Size:** about a 50 MB download (the `.dmg`) and 120 MB once installed, mostly astropy and pandas.
 - **Space-fixed OEM frames** (EME2000, GCRF, ICRF) still download current
   Earth orientation data when online. Bundling it for offline use is
   [#14](https://github.com/SBK008/orbit-coordinate-converter/issues/14).
