@@ -48,10 +48,12 @@ Download, double-click, done. No Python needed.
 - [ ] Teach the updater to recognize a standalone app and offer the new
       installer, since it can't swap `.py` files inside a packaged app
 - [ ] Bundle the PROJ and IERS data the converter needs, so the app works offline
-- [ ] Code signing, so Windows SmartScreen and macOS Gatekeeper don't warn users:
-      - macOS: Apple Developer ID and notarization (Apple Developer Program, $99/year)
-      - Windows: a code signing certificate or Azure Trusted Signing
-      - Until then, the apps ship unsigned, with instructions for opening them
+- [ ] Free code signing, so fewer systems warn users:
+      - Windows: signed through the SignPath Foundation, which signs
+        open-source projects for free
+      - macOS: Apple's notarization requires a paid account, so the app is
+        ad-hoc signed and ships with steps for opening it the first time
+      - Linux: AppImages are covered by the release's Sigstore signatures
 - [ ] Download page in the README with one button per system
 - [ ] A modern look for the desktop app, with light and dark mode
 - [ ] Full keyboard use and readable contrast, for accessibility
