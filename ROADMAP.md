@@ -33,35 +33,13 @@ so you can follow progress there. Have an idea or need? [Open an issue](https://
 - [x] Set version bounds on dependencies
 - [x] `CHANGELOG.md`
 
-## 1.5.0: Standalone apps for Windows, macOS, and Linux
+## 1.5.0: Features and usability
 
-[Track progress](https://github.com/SBK008/orbit-coordinate-converter/milestone/2)
+[Track progress](https://github.com/SBK008/orbit-coordinate-converter/milestone/3)
 
-Download, double-click, done. No Python needed.
-
-- [ ] Build the desktop app for each system with PyInstaller (or Briefcase)
-      - Windows: `.exe` installer
-      - macOS: `.app` in a `.dmg`, for both Apple Silicon and Intel
-      - Linux: AppImage
-- [ ] Build all three in GitHub Actions whenever a release is published, and
-      attach them to the release with their checksums
-- [ ] Teach the updater to recognize a standalone app and offer the new
-      installer, since it can't swap `.py` files inside a packaged app
-- [ ] Bundle the PROJ and IERS data the converter needs, so the app works offline
-- [ ] Free code signing, so fewer systems warn users:
-      - Windows: signed through the SignPath Foundation, which signs
-        open-source projects for free
-      - macOS: Apple's notarization requires a paid account, so the app is
-        ad-hoc signed and ships with steps for opening it the first time
-      - Linux: AppImages are covered by the release's Sigstore signatures
-- [ ] Download page in the README with one button per system
 - [ ] A modern look for the desktop app, with light and dark mode
 - [ ] Full keyboard use and readable contrast, for accessibility
 - [ ] A docs site on GitHub Pages with screenshots and how-to guides
-
-## 1.6.0: Features
-
-[Track progress](https://github.com/SBK008/orbit-coordinate-converter/milestone/3)
 
 - [ ] More output formats, in the app and with a `--output-format` option:
       - **KML:** open a ground track or flight path as a 3D line in Google Earth
@@ -101,6 +79,33 @@ Each one gets a warning in a 1.x release first.
       - **Browser version:** nothing to install, and files never leave your
         computer
 - [ ] An "Upgrading to 2.0" guide showing old usage next to new
+
+## On hold: standalone apps for Windows, macOS, and Linux
+
+[Issues](https://github.com/SBK008/orbit-coordinate-converter/milestone/2)
+
+Download, double-click, done, with no Python needed. On hold because most
+people who work with orbit files already have Python, and `pip install
+orbit-converter` covers them. If you need an app that runs without Python,
+[open an issue](https://github.com/SBK008/orbit-coordinate-converter/issues/new)
+and say so. Requests decide when this starts.
+
+- [ ] Build the desktop app for each system with PyInstaller (or Briefcase)
+      - Windows: `.exe` installer
+      - macOS: `.app` in a `.dmg`, for both Apple Silicon and Intel
+      - Linux: AppImage
+- [ ] Build all three in GitHub Actions whenever a release is published, and
+      attach them to the release with their checksums
+- [ ] Teach the updater to recognize a standalone app and offer the new
+      installer, since it can't swap `.py` files inside a packaged app
+- [ ] Bundle the PROJ and IERS data the converter needs, so the app works offline
+- [ ] Free code signing, so fewer systems warn users:
+      - Windows: signed through the SignPath Foundation, which signs
+        open-source projects for free
+      - macOS: Apple's notarization requires a paid account, so the app is
+        ad-hoc signed and ships with steps for opening it the first time
+      - Linux: AppImages are covered by the release's Sigstore signatures
+- [ ] Download page in the README with one button per system
 
 ## Ongoing
 
