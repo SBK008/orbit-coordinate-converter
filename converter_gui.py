@@ -22,6 +22,7 @@ import subprocess
 import sys
 import threading
 import traceback
+import webbrowser
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
@@ -488,6 +489,12 @@ class ConverterApp:
         self._run_update_task(lambda: updater.check(current), done)
 
     def _offer_update(self, current, latest):
+        if updater.is_packaged():
+            # A standalone app can't replace its own files; send the user to the download
+            if messagebox.askyesno(APP_TITLE, f"Version {latest} is available (you have {current}).\n\n"
+                                              "Open the download page now?"):
+                webbrowser.open(updater.download_page_url(f"v{latest}"))
+            return
         if updater.installed_with_pip():
             self.root.clipboard_clear()
             self.root.clipboard_append(updater.pip_upgrade_command(latest))
@@ -534,7 +541,59 @@ def _set_state(widgets, enabled):
             pass  # plain frames and labels without a state
 
 
+def self_test():
+    """
+    Convert small sample files with every converter, then open and close a
+    window. The standalone app builds run this (--self-test) to prove that the
+    packaged app has everything it needs. Returns a process exit code.
+    """
+    import tempfile
+    oem = ("CCSDS_OEM_VERS = 2.0\nCREATION_DATE = 2026-11-05T00:00:00\nORIGINATOR = SELFTEST\n"
+           "META_START\nOBJECT_NAME = SAT\nCENTER_NAME = EARTH\nREF_FRAME = {frame}\n"
+           "TIME_SYSTEM = UTC\nMETA_STOP\n"
+           "2026-01-01T00:00:00.000 6778.137 0 0\n2026-01-01T00:01:00.000 6778.137 10 0\n")
+    quiet = dict(progress=lambda m: None)
+    checks = []
+    with tempfile.TemporaryDirectory() as d:
+        def path(name, text=None):
+            p = os.path.join(d, name)
+            if text is not None:
+                with open(p, "w", encoding="utf-8") as f:
+                    f.write(text)
+            return p
+        csv_in = path("in.csv", "x,y,z\n6378137,0,0\n")
+        checks.append(("CSV", lambda: conv.convert_csv(csv_in, path("o1.csv"), "x", "y", "z",
+                                                      conv.CSV_CHUNKSIZE, **quiet)))
+        itrf = path("itrf.oem", oem.format(frame="ITRF2020"))
+        checks.append(("NAIRAS (pyproj)", lambda: conv.convert_oem_nairas(
+            itrf, path("o2.txt"), conv.OEM_CHUNKSIZE, limit=1, **quiet)))
+        eme = path("eme.oem", oem.format(frame="EME2000"))
+        checks.append(("EME2000 (astropy)", lambda: conv.convert_oem(
+            eme, path("o3.csv"), conv.OEM_CHUNKSIZE, **quiet)))
+
+        def window():
+            root = tk.Tk()
+            ConverterApp(root)
+            root.update()
+            root.destroy()
+            return 1
+        checks.append(("Window (Tk)", window))
+
+        failed = 0
+        for name, run in checks:
+            try:
+                points = run()
+                print(f"ok    {name} ({points} points)")
+            except Exception as e:
+                failed += 1
+                print(f"FAIL  {name}: {type(e).__name__}: {e}")
+    print(f"{APP_TITLE} {conv.__version__} self-test: {'passed' if not failed else 'FAILED'}")
+    return 1 if failed else 0
+
+
 def main():
+    if "--self-test" in sys.argv[1:]:
+        sys.exit(self_test())
     if sys.platform.startswith("win"):
         try:  # sharp text on high-resolution Windows screens instead of blurry scaling
             import ctypes

@@ -394,3 +394,19 @@ def test_release_key_is_set():
     for key in updater.TRUSTED_KEYS:
         raw = base64.b64decode(key, validate=True)
         assert len(raw) == 42 and raw[:2] == b"Ed", f"{key!r} is not a minisign public key"
+
+
+def test_standalone_app_is_never_patched(github, monkeypatch):
+    # In a packaged app the code is sealed inside the app (and covered by its
+    # signature), so the updater must point to the download, not swap files
+    monkeypatch.setattr(updater.sys, "frozen", True, raising=False)
+    assert updater.is_packaged()
+    with pytest.raises(updater.UpdateError, match="standalone app"):
+        updater.install("1.2.0")
+    assert_unchanged(github.app)
+    assert updater.check("1.2.0") == "1.3.0"     # still tells the user a new version exists
+
+
+def test_download_page_url(github):
+    assert updater.download_page_url() == "https://github.com/someone/converter/releases/latest"
+    assert updater.download_page_url("v1.3.0").endswith("/releases/tag/v1.3.0")

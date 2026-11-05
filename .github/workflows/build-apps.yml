@@ -1,0 +1,78 @@
+# Builds the standalone desktop app (no Python needed) and checks it works.
+#
+# For now this makes the macOS app, for Apple Silicon and Intel Macs. Each
+# build runs the app's self-test from inside the finished .dmg, then saves
+# the .dmg on the run's Summary page under "Artifacts" for testing.
+# Windows and Linux builds, and attaching the apps to releases, come next.
+name: build apps
+
+on:
+  pull_request:
+    paths:
+      - "*.py"
+      - "pyproject.toml"
+      - "requirements.txt"
+      - "packaging/**"
+      - ".github/workflows/build-apps.yml"
+  workflow_dispatch:     # adds a "Run workflow" button on the Actions tab
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    name: macOS app / ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest       # Apple Silicon (M1 and newer)
+            arch: arm64
+          - runner: macos-15-intel     # Intel Macs
+            arch: x86_64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # python.org's build, which includes Tk for the app's window
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Install the app and the build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install . -r packaging/requirements.txt
+
+      - name: Build the app
+        run: pyinstaller --noconfirm packaging/coordinate_converter.spec
+
+      - name: Sign the app (free ad-hoc signature) and check it
+        run: |
+          codesign --force --deep --sign - "dist/Coordinate Converter.app"
+          codesign --verify --deep --strict --verbose=2 "dist/Coordinate Converter.app"
+
+      - name: Make the .dmg
+        run: |
+          version=$(python -c "import xyz_to_lla; print(xyz_to_lla.__version__)")
+          dmg="Coordinate-Converter-${version}-macOS-${{ matrix.arch }}.dmg"
+          mkdir dmg
+          cp -R "dist/Coordinate Converter.app" dmg/
+          ln -s /Applications dmg/Applications     # drag the app onto this
+          hdiutil create -volname "Coordinate Converter" -srcfolder dmg -ov -format UDZO "$dmg"
+          echo "DMG=$dmg" >> "$GITHUB_ENV"
+
+      - name: Run the self-test from inside the .dmg
+        run: |
+          hdiutil attach "$DMG" -mountpoint /tmp/cc -nobrowse
+          "/tmp/cc/Coordinate Converter.app/Contents/MacOS/Coordinate Converter" --self-test
+          hdiutil detach /tmp/cc
+
+      - name: Show the size
+        run: du -sh "dist/Coordinate Converter.app" "$DMG"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ env.DMG }}
+          path: ${{ env.DMG }}
+          retention-days: 14
+          if-no-files-found: error

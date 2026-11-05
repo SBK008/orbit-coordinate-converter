@@ -29,3 +29,15 @@ updates:
     groups:
       python-packages:
         patterns: ["*"]
+
+  # Tools that build the standalone apps (packaging/requirements.txt)
+  - package-ecosystem: pip
+    directory: /packaging
+    versioning-strategy: increase-if-necessary
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "deps"
+    groups:
+      build-tools:
+        patterns: ["*"]
