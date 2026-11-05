@@ -63,7 +63,8 @@ SIGNATURE_ASSET = CHECKSUM_ASSET + ".minisig"
 # who takes over the GitHub account still can't publish a release this
 # updater accepts.
 TRUSTED_KEYS = [
-    "RELEASE_KEY_PLACEHOLDER",
+    # Samuel Braman release key, ID 4DFE960FFF7DA07C (added in 1.4.0)
+    "RWR8oH3/D5b+TQRtJdxqoLRA7kLjUq9mg5BQauO1XTaWfR/v3g3aF+At",
 ]
 
 TIMEOUT_SECONDS = 15
