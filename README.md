@@ -77,6 +77,23 @@ pip install orbit-converter
 
 To update, click **Check for updates** in the app. It installs the latest release only after checking its signature and every file's checksum.
 
+### Mac users
+
+1. Install Python from [python.org](https://www.python.org/downloads/macos/) (3.11 or newer).
+2. In **Applications > Python**, double-click **Install Certificates.command**.
+3. Open **Terminal** (Cmd+Space, type "Terminal") and run:
+   ```
+   pip3 install orbit-converter
+   ```
+4. Start the app any time by typing this in Terminal:
+   ```
+   coordinate-converter
+   ```
+
+Keep Terminal open while the app is running.
+
+**If something goes wrong:** close Terminal, open a new one, and try again. If it still doesn't work, make sure you installed Python from python.org (not Homebrew), then [open an issue](https://github.com/SBK008/orbit-coordinate-converter/issues).
+
 ## Desktop app
 
 1. Choose an input file (`.csv`, `.oem`, or `.txt`).
