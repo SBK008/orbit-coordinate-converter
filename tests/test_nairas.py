@@ -105,3 +105,37 @@ def test_bad_step(write, tmp_path, step):
     # millisecond was silently treated as 0 (keep every point)
     with pytest.raises(conv.ConverterError, match="time step"):
         nairas(write, tmp_path, oem_text([({}, [])]), step_seconds=step)
+
+
+LEAP_UTC = ["2016-12-31T23:59:59.000", "2016-12-31T23:59:60.000", "2016-12-31T23:59:60.500",
+            "2017-01-01T00:00:00.000", "2017-001T00:00:01.000"]
+LEAP_ROWS = [["2016", "12", "31", "23", "59", "59.000"],
+             ["2016", "12", "31", "23", "59", "60.000"],
+             ["2016", "12", "31", "23", "59", "60.500"],
+             ["2017", "1", "1", "0", "0", "0.000"],
+             ["2017", "1", "1", "0", "0", "1.000"]]
+
+
+def test_utc_leap_second(write, tmp_path):
+    # 23:59:60 used to become the next day's 00:00:00, so the real 00:00:00
+    # after it was refused as "not later than the one before it"
+    out = nairas(write, tmp_path, oem_text([({}, [f"{t} 6778.137 0 0" for t in LEAP_UTC])]))
+    assert [r.split()[:6] for r in data_rows(out)] == LEAP_ROWS
+
+
+def test_leap_second_from_another_time_system(write, tmp_path):
+    # TAI was 36 s ahead of UTC until the leap second, 37 s after it
+    tai = ["2017-01-01T00:00:35.000", "2017-01-01T00:00:36.000", "2017-01-01T00:00:36.500",
+           "2017-01-01T00:00:37.000", "2017-01-01T00:00:38.000"]
+    out = nairas(write, tmp_path, oem_text([({"TIME_SYSTEM": "TAI"},
+                                             [f"{t} 6778.137 0 0" for t in tai])]))
+    assert [r.split()[:6] for r in data_rows(out)] == LEAP_ROWS
+
+
+@pytest.mark.parametrize("chunksize", [1000, 2])
+def test_step_across_a_leap_second(write, tmp_path, chunksize):
+    lines = [f"2016-12-31T23:59:{s:02d}.000 6778.137 0 0" for s in range(55, 61)] + \
+            [f"2017-01-01T00:00:{s:02d}.000 6778.137 0 0" for s in range(0, 5)]
+    out = nairas(write, tmp_path, oem_text([({}, lines)]), chunksize=chunksize, step_seconds=2)
+    assert [r.split()[5] for r in data_rows(out)] == ["55.000", "57.000", "59.000",
+                                                       "1.000", "3.000"]

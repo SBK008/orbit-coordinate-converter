@@ -220,12 +220,13 @@ GitHub's **Cite this repository** button (in the About section) gives APA and Bi
 2. Make the changes on that branch, raise `__version__` in `xyz_to_lla.py`, add a section to `CHANGELOG.md`, and update `version` and `date-released` in `CITATION.cff`.
 3. Open a pull request into `main` and wait for the tests to pass.
 4. Merge the pull request.
-5. Go to **Releases > Draft a new release**, create a tag named after the version (like `v1.4.0`) on `main`, paste the changelog section, and publish.
+5. Go to **Releases > Draft a new release**, create a tag named after the version (like `v1.4.0`) on `main`, paste the changelog section, and publish. Leave **Set as a pre-release** unticked: pre-releases are not sent to PyPI or the updater.
 6. The **release** workflow checks the tag, signs the files with Sigstore, attaches `SHA256SUMS` and the packages, and publishes to PyPI. Wait for a green check on the Actions tab.
-7. On your own computer, sign the release with your offline key:
+7. On your own computer, sign the release with your offline key. Give it the commit you merged, from your own copy of the repository:
    ```
-   scripts/sign_release.sh v1.4.0
+   git fetch origin
+   scripts/sign_release.sh v1.4.0 "$(git rev-parse origin/main)"
    ```
-   It checks that `SHA256SUMS` matches the files at the tag before signing. Attach the `SHA256SUMS.minisig` it makes to the release (**Edit release**, drag the file in, **Update release**).
+   It checks that the tag on GitHub points at that commit, and that `SHA256SUMS` matches the files there, before signing. Attach the `SHA256SUMS.minisig` it makes to the release (**Edit release**, drag the file in, **Update release**).
 
 The app's update button won't install a release until both `SHA256SUMS` and `SHA256SUMS.minisig` are attached. Code merged into `main` without a release is never sent to users.

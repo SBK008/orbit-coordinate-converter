@@ -108,6 +108,12 @@ def test_teme_frame(write, tmp_path):
     (oem_text([({}, ["2026-02-30T00:00:00 6778 0 0"])]), "not a real date"),
     (oem_text([({}, ["2026-01-01T25:00:00 6778 0 0"])]), "not a real date"),
     (oem_text([({}, ["2026/01/01 6778 0 0"])]), "unrecognized|not in a supported"),
+    # Second 60 only exists as a UTC leap second, at 23:59:60
+    (oem_text([({}, ["2026-01-01T12:30:60.500 6778 0 0"])]), "not a real date"),
+    (oem_text([({}, ["2016-12-31T23:59:61 6778 0 0"])]), "not a real date"),
+    (oem_text([({"TIME_SYSTEM": "TAI"}, ["2016-12-31T23:59:60 6778 0 0"])]), "not a real date"),
+    # float() reads "7_000" as 7000, but it is not a number in an OEM file
+    (oem_text([({}, ["2026-01-01T00:00:00 6_778 0 0"])]), "as numbers"),
     ("CCSDS_OEM_VERS = 2.0\nMETA_START\nCENTER_NAME = EARTH\n", "no matching META_STOP"),
 ])
 def test_bad_oem_files(write, tmp_path, text, message):
@@ -118,3 +124,9 @@ def test_bad_oem_files(write, tmp_path, text, message):
 def test_unknown_time_format(write, tmp_path):
     with pytest.raises(ValueError):
         convert(write, tmp_path, oem_text([({}, [])]), time_format="julian")
+
+
+def test_utc_leap_second_is_accepted(write, tmp_path):
+    df = convert(write, tmp_path, oem_text([({}, ["2016-12-31T23:59:60.500 6778.137 0 0"])]),
+                 time_format="mjd")
+    assert df["epoch_mjd"][0] == "57754.000005787037"

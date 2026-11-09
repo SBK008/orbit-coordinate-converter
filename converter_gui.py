@@ -373,22 +373,21 @@ class ConverterApp:
         self.progress.configure(mode="indeterminate", value=0)
         self.progress.start(12)
         self.status.set("Converting...")
-        self.worker = threading.Thread(target=self._run, args=(job, out_path), daemon=True)
+        self.worker = threading.Thread(target=self._run, args=(job, in_path, out_path, limit),
+                                       daemon=True)
         self.worker.start()
         self.root.after(100, self._poll)
 
-    def _run(self, job, out_path):
+    def _run(self, job, in_path, out_path, limit):
         """Runs in the background thread. Talks to the UI only through the queue."""
         try:
             total = job(lambda msg: self.messages.put(("status", msg)))
-            self.messages.put(("done", (total, out_path)))
+            self.messages.put(("done", (total, out_path, limit)))
         except conv.ConverterError as e:
             self.messages.put(("error", str(e)))
-        except PermissionError:
-            self.messages.put(("error", f"Could not write {os.path.basename(out_path)}.\n"
-                                        "If it is open in Excel or another program, close it and try again."))
-        except FileNotFoundError:
-            self.messages.put(("error", f"The folder for {os.path.basename(out_path)} does not exist."))
+        except OSError as e:
+            self.messages.put(("error", conv.describe_os_error(e, in_path, out_path,
+                                                               name=os.path.basename)))
         except Exception as e:  # unexpected: show it, and print details for debugging
             traceback.print_exc()
             self.messages.put(("error", f"{type(e).__name__}: {e}"))
@@ -400,9 +399,11 @@ class ConverterApp:
                 if kind == "status":
                     self.status.set(payload)
                 elif kind == "done":
-                    total, out_path = payload
+                    total, out_path, limit = payload
+                    # The limit this conversion ran with, even if the box changed since
+                    hit = bool(limit) and total >= limit
                     self._finish(f"Done. Wrote {total:,} points to {os.path.basename(out_path)}"
-                                 f"{' (the limit you set)' if self._limit_hit(total) else ''}")
+                                 f"{' (the limit you set)' if hit else ''}")
                     self.last_output = out_path
                     self.open_button.configure(state="normal")
                     return
@@ -413,13 +414,6 @@ class ConverterApp:
         except queue.Empty:
             pass
         self.root.after(100, self._poll)
-
-    def _limit_hit(self, total):
-        try:
-            limit = conv.check_limit(self.limit.get())
-        except conv.ConverterError:
-            return False
-        return bool(limit) and total >= limit
 
     def _finish(self, message):
         self.progress.stop()
