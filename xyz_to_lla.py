@@ -93,8 +93,9 @@ import argparse
 import contextlib
 import math
 import os
+import secrets
+import stat
 import sys
-import tempfile
 from types import SimpleNamespace
 
 import numpy as np
@@ -177,15 +178,28 @@ def _done_message(total, limit, out_path, extra=""):
     return f"Done. Wrote {total:,} points{extra}{stopped} to {out_path}"
 
 
-def _read_umask():
-    # os.umask can only be read by setting it, which changes it for the whole
-    # process. Do that once here, at import, before the app starts any threads.
-    mask = os.umask(0)
-    os.umask(mask)
-    return mask
+# Flags for a new temporary output file: create it, fail if the name is taken,
+# and never follow a link. Same flags tempfile.mkstemp uses.
+_TMP_FLAGS = (os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+              | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NOINHERIT", 0)
+              | getattr(os, "O_CLOEXEC", 0))
+# Room left in a file name (255 on every common file system) for ".1234abcd.part"
+_TMP_NAME_BYTES = 240
 
 
-_UMASK = _read_umask()
+def _new_temp_file(folder, name):
+    """Create a new, empty file with a random name next to the output. Returns (fd, path)."""
+    # Long output names are cut short so the .part name still fits
+    stem = name.encode("utf-8", "surrogateescape")[:_TMP_NAME_BYTES].decode("utf-8", "ignore")
+    for _ in range(100):
+        tmp = os.path.join(folder, f"{stem}.{secrets.token_hex(4)}.part")
+        try:
+            # Mode 0o666 lets the system apply the user's umask, as for any new
+            # file, without this process ever changing the umask
+            return os.open(tmp, _TMP_FLAGS, 0o666), tmp
+        except FileExistsError:
+            continue
+    raise FileExistsError(f"Could not create a temporary file in {folder}")
 
 
 @contextlib.contextmanager
@@ -194,16 +208,18 @@ def _output_file(out_path):
     Open a temporary file next to out_path for writing. On success it replaces
     out_path; on any error (or Ctrl+C) it is deleted and out_path is left alone.
     """
-    # mkstemp makes a new file with a random name and never follows an existing
-    # file or link, so nothing outside out_path can be overwritten
+    # The temporary file is always new (O_EXCL) and never a link (O_NOFOLLOW),
+    # so nothing outside out_path can be overwritten
     folder, name = os.path.split(os.path.abspath(out_path))
-    fd, tmp = tempfile.mkstemp(dir=folder, prefix=name + ".", suffix=".part")
+    fd, tmp = _new_temp_file(folder, name)
     f = os.fdopen(fd, "w", newline="", encoding="utf-8")
     try:
         with f:
             yield f
-        # mkstemp files are private (0600); give the output normal permissions
-        os.chmod(tmp, 0o666 & ~_UMASK)
+        # A file being replaced keeps its permissions, so an output someone made
+        # private stays private
+        if os.name == "posix" and os.path.exists(out_path):
+            os.chmod(tmp, stat.S_IMODE(os.stat(out_path).st_mode) & 0o777)
         os.replace(tmp, out_path)
     except BaseException:
         f.close()
@@ -221,6 +237,10 @@ def _write_chunk(df, f, sep, header):
 # ---------------------------------------------------------------------------
 # CSV input
 # ---------------------------------------------------------------------------
+
+# Columns convert_csv adds after the input's own columns
+CSV_ADDED_COLUMNS = ("lat", "lon", "alt")
+
 
 def _resolve_column(name, columns):
     """Find a column by exact name, then ignoring spaces around it and letter case."""
@@ -270,7 +290,7 @@ def convert_csv(in_path, out_path, xcol, ycol, zcol, chunksize, progress=None,
                 # Header only, no data rows: still write the header
                 columns = pd.read_csv(in_path, nrows=0, **read_opts).columns
                 _find_xyz(columns, (xcol, ycol, zcol), in_path)
-                empty = pd.DataFrame(columns=[*columns, "lat", "lon", "alt"])
+                empty = pd.DataFrame(columns=[*columns, *CSV_ADDED_COLUMNS])
                 _write_chunk(empty, f, sep, header)
     except pd.errors.EmptyDataError:
         raise ConverterError(f"{in_path} is empty.")
@@ -291,6 +311,12 @@ def _find_xyz(columns, names, in_path):
                              f"Columns in the file: {', '.join(map(str, columns))}")
     if len(set(found)) < 3:
         raise ConverterError("X, Y and Z must be three different columns.")
+    # The new columns would replace these, losing the data in them
+    taken = [c for c in CSV_ADDED_COLUMNS if c in columns]
+    if taken:
+        raise ConverterError(f"{in_path} already has a column named {', '.join(taken)}, which "
+                             "the output adds. Rename it in the input first, so its values "
+                             "are not lost.")
     return found
 
 
@@ -450,6 +476,9 @@ def _iter_oem_batches(path, chunksize):
                 if len(parts) < 4:
                     raise OEMError(f"Line {n}: data line needs at least an epoch and X Y Z, got: {line}")
                 try:
+                    # float() also takes "7_000", which is not a number in an OEM file
+                    if any("_" in v for v in parts[1:4]):
+                        raise ValueError
                     x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
                     if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
                         raise ValueError
@@ -477,17 +506,18 @@ def _iter_oem_batches(path, chunksize):
         yield take()
 
 
-def _check_epochs(epochs, line_numbers):
+def _check_epochs(epochs, line_numbers, time_system="UTC"):
     ok = pd.Series(epochs).str.fullmatch(_EPOCH_RE).to_numpy()
     if not ok.all():
         i = int(np.argmin(ok))
         raise OEMError(f"Line {line_numbers[i]}: epoch {epochs[i]} is not in a supported format. "
                        "Use YYYY-MM-DDThh:mm:ss.sss or YYYY-DDDThh:mm:ss.sss.")
-    # Also refuse impossible dates and times (2026-02-30, 25:00), whatever the output format
-    _split_epochs(epochs, line_numbers)
+    # Also refuse impossible dates and times (2026-02-30, 25:00), whatever the output format.
+    # Only UTC has leap seconds; TAI, TT, GPS and the rest never have a second 60.
+    _split_epochs(epochs, line_numbers, allow_leap=time_system == "UTC")
 
 
-def _split_epochs(epochs, line_numbers):
+def _split_epochs(epochs, line_numbers, allow_leap=True):
     """
     Split checked OEM epoch strings into calendar days (datetime64[D]), the
     time-of-day text, and seconds of day. Pure calendar arithmetic in the file's
@@ -525,7 +555,10 @@ def _split_epochs(epochs, line_numbers):
     hh = time_text.str[0:2].astype(int).to_numpy()
     mm = time_text.str[3:5].astype(int).to_numpy()
     ss = time_text.str[6:].astype(float).to_numpy()
-    bad |= (hh > 23) | (mm > 59) | (ss >= 61)   # 61 allows a UTC leap second (23:59:60)
+    # A UTC leap second (23:59:60.xxx) is the only time with second 60, and it
+    # only ever comes at the end of a day
+    leap = (ss >= 60) & (ss < 61) & (hh == 23) & (mm == 59) & allow_leap
+    bad |= (hh > 23) | (mm > 59) | ((ss >= 60) & ~leap)
 
     if bad.any():
         i = int(np.argmax(bad))
@@ -687,7 +720,7 @@ def _oem_points(in_path, chunksize, fast):
         if meta is not last_meta:
             segments += 1
             last_meta = meta
-        _check_epochs(epochs, line_numbers)
+        _check_epochs(epochs, line_numbers, meta["time_system"])
         x, y, z = x_km * 1000.0, y_km * 1000.0, z_km * 1000.0
         if meta["frame"] in INERTIAL_FRAMES:
             x, y, z = _rotate_to_earth_fixed(meta, epochs, line_numbers, x, y, z, fast)
@@ -739,39 +772,52 @@ NAIRAS_COLUMNS_LINE = ("# year(yyyy),month(mm),day(dd),hour(hh),min(mm),"
 NAIRAS_ROW_FORMAT = " %4d %3d %3d %3d %3d %6.3f %12.6f %12.6f %12.6f"
 
 
-def _utc_times_ms(meta, epochs, line_numbers):
-    """OEM epochs as UTC datetime64[ms], converting from other time systems if needed."""
-    if meta["time_system"] == "UTC":
-        days, _, seconds = _split_epochs(epochs, line_numbers)
-        ms = np.rint(seconds * 1000.0).astype(np.int64)
-        return days.astype("datetime64[ms]") + ms.astype("timedelta64[ms]")
-    try:
-        ns = _parse_epochs(epochs, meta["time_system"]).utc.datetime64.astype("datetime64[ns]")
-    except OEMError:
-        raise
-    except Exception as e:
-        raise OEMError(f"Could not convert {meta['time_system']} epochs to UTC for the lines "
-                       f"starting at line {line_numbers[0]} (epoch {epochs[0]}).\n"
-                       f"{type(e).__name__}: {e}")
-    n = ns.astype(np.int64)
-    return ((n + 500_000) // 1_000_000).astype("datetime64[ms]")   # round to the millisecond
+_DAY_MS = 86_400_000
 
 
-def _nairas_rows(t_ms, lat, lon, alt_m):
+def _utc_days_ms(meta, epochs, line_numbers):
+    """
+    OEM epochs in UTC as (calendar days, milliseconds of day), converting from
+    other time systems if needed. A leap second (23:59:60.xxx) keeps its
+    86,400,000+ milliseconds of day, so it is written as second 60 instead of
+    landing on the next day's 00:00:00.
+    """
+    utc = epochs
+    if meta["time_system"] != "UTC":
+        try:
+            t = _parse_epochs(epochs, meta["time_system"]).utc
+            t.precision = 9
+            utc = list(t.isot)   # astropy writes leap seconds as 23:59:60
+        except OEMError:
+            raise
+        except Exception as e:
+            raise OEMError(f"Could not convert {meta['time_system']} epochs to UTC for the lines "
+                           f"starting at line {line_numbers[0]} (epoch {epochs[0]}).\n"
+                           f"{type(e).__name__}: {e}")
+    days, _, seconds = _split_epochs(utc, line_numbers)
+    ms = np.rint(seconds * 1000.0).astype(np.int64)    # round to the millisecond
+    # Rounding up past the end of the day carries into the next day. A day with
+    # a leap second has one more second in it.
+    day_ms = np.where(seconds >= 86400.0, _DAY_MS + 1000, _DAY_MS)
+    carry = ms >= day_ms
+    return days + carry.astype("timedelta64[D]"), np.where(carry, ms - day_ms, ms)
+
+
+def _nairas_rows(days, ms_of_day, lat, lon, alt_m):
     """Columns in NAIRAS order: year month day hour min sec alt_km lat lon360."""
-    d = t_ms.astype("datetime64[D]")
-    month_start = d.astype("datetime64[M]")
-    year_start = d.astype("datetime64[Y]")
-    ms_of_day = (t_ms - d).astype(np.int64)
+    month_start = days.astype("datetime64[M]")
+    year_start = days.astype("datetime64[Y]")
+    # A leap second stays in the day's last minute, as second 60
+    minute_of_day = np.minimum(ms_of_day // 60_000, 24 * 60 - 1)
     lon360 = np.round(np.mod(lon, 360.0), 6)
     lon360[lon360 >= 360.0] = 0.0          # -0.0000001 rounds to 360.000000, which is 0
     return np.column_stack([
         year_start.astype(np.int64) + 1970,
         (month_start - year_start).astype(np.int64) + 1,
-        (d - month_start).astype(np.int64) + 1,
-        ms_of_day // 3_600_000,
-        ms_of_day // 60_000 % 60,
-        ms_of_day % 60_000 / 1000.0,
+        (days - month_start).astype(np.int64) + 1,
+        minute_of_day // 60,
+        minute_of_day % 60,
+        (ms_of_day - minute_of_day * 60_000) / 1000.0,
         alt_m / 1000.0,
         lat,
         lon360,
@@ -819,16 +865,23 @@ def convert_oem_nairas(in_path, out_path, chunksize, fast=False, step_seconds=0,
                     raise OEMError("A NAIRAS trajectory is one vehicle, but this OEM file has more "
                                    f"than one object ({', '.join(o or '(no name)' for o in objects)}). "
                                    "Split it into one file per object first.")
-            t = _utc_times_ms(meta, epochs, line_numbers)
-            ti = t.astype(np.int64)
-            prev = np.concatenate(([last_time if last_time is not None else ti[0] - 1], ti[:-1]))
-            backwards = ti <= prev
+            days, ms = _utc_days_ms(meta, epochs, line_numbers)
+            day_index = days.astype(np.int64)
+            # For time order, give each day room for a leap second, so 23:59:60
+            # comes after 23:59:59 and before the next day's 00:00:00
+            order = day_index * (_DAY_MS + 1000) + ms
+            # Plain milliseconds since 1970, for the time step. A leap second
+            # counts as the day's last millisecond, so buckets never go backwards.
+            ti = day_index * _DAY_MS + np.minimum(ms, _DAY_MS - 1)
+            prev = np.concatenate(([last_time if last_time is not None else order[0] - 1],
+                                   order[:-1]))
+            backwards = order <= prev
             if backwards.any():
                 i = int(np.argmax(backwards))
                 raise OEMError(f"Line {line_numbers[i]}: epoch {epochs[i]} is not later than the "
                                "one before it. NAIRAS needs the points in time order with no "
                                "repeats.")
-            last_time = int(ti[-1])
+            last_time = int(order[-1])
             keep = slice(None)
             if step_ms > 0:
                 if t0 is None:
@@ -838,7 +891,7 @@ def convert_oem_nairas(in_path, out_path, chunksize, fast=False, step_seconds=0,
                                          bucket[:-1]))
                 keep = bucket != prev_b
                 last_bucket = int(bucket[-1])
-            rows = _nairas_rows(t[keep], lat[keep], lon[keep], alt[keep])
+            rows = _nairas_rows(days[keep], ms[keep], lat[keep], lon[keep], alt[keep])
             if limit:
                 rows = rows[:limit - total]
             if header and total == 0 and read == 0:
@@ -849,7 +902,7 @@ def convert_oem_nairas(in_path, out_path, chunksize, fast=False, step_seconds=0,
                 f.write(NAIRAS_COLUMNS_LINE + "\n")
             if len(rows):
                 np.savetxt(f, rows, fmt=NAIRAS_ROW_FORMAT)
-            read += len(t)
+            read += len(ms)
             total += len(rows)
             _report(progress, f"Read {read:,} points, wrote {total:,} (segment {segments})")
             if limit and total >= limit:
@@ -858,6 +911,26 @@ def convert_oem_nairas(in_path, out_path, chunksize, fast=False, step_seconds=0,
             f.write(NAIRAS_COLUMNS_LINE + "\n")
     _report(progress, _done_message(total, limit, out_path, f" of {read:,} read"))
     return total
+
+
+def describe_os_error(e, in_path, out_path, name=str):
+    """
+    A message for an OSError raised while converting in_path to out_path, naming
+    the file it was about. name turns a path into the text shown (such as
+    os.path.basename in the desktop app).
+    """
+    reason = e.strerror or str(e)
+    about = e.filename if isinstance(e.filename, (str, bytes, os.PathLike)) else None
+    if about is not None and os.path.abspath(os.fsdecode(about)) == os.path.abspath(in_path):
+        if isinstance(e, FileNotFoundError):
+            return f"The input file {name(in_path)} is no longer there."
+        return f"Could not read {name(in_path)}: {reason}."
+    if isinstance(e, PermissionError):
+        return (f"Could not write {name(out_path)}. If it is open in Excel or another "
+                "program, close it and try again.")
+    if isinstance(e, FileNotFoundError):
+        return f"The folder for {name(out_path)} does not exist."
+    return f"Could not write {name(out_path)}: {reason}."
 
 
 def check_paths(in_path, out_path):
@@ -931,12 +1004,8 @@ def main():
     except ConverterError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-    except PermissionError:
-        print(f"Error: could not write {a.output}. If it is open in Excel or another "
-              "program, close it and try again.", file=sys.stderr)
-        sys.exit(1)
-    except FileNotFoundError:
-        print(f"Error: the folder for {a.output} does not exist.", file=sys.stderr)
+    except OSError as e:
+        print(f"Error: {describe_os_error(e, a.input, a.output)}", file=sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:
         print("Stopped. No output file was written.", file=sys.stderr)

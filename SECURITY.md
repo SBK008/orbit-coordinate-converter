@@ -21,7 +21,7 @@ The in-app updater downloads new code, so here is exactly what it trusts and che
 - **Source:** files are downloaded only over HTTPS from `api.github.com`, `raw.githubusercontent.com`, and the release's own download link. Certificate verification is never turned off.
 - **Fixed file list:** only the `.py` files named in `updater.py` are downloaded, exactly as they were at the release tag. Nothing else is fetched or run.
 - **Signature:** `SHA256SUMS` must carry a valid signature (`SHA256SUMS.minisig`) from the maintainer's release key, which is listed in `TRUSTED_KEYS` in `updater.py`. The private key is kept offline and never touches GitHub. The signature must also name the release's tag, so an old signature can't be reused for a new release.
-- **Checksums:** every file must match the SHA-256 hash in the signed `SHA256SUMS` file. The release workflow generates it from the tagged code, and the maintainer checks it against the tag before signing.
+- **Checksums:** every file must match the SHA-256 hash in the signed `SHA256SUMS` file. The release workflow generates it from the tagged code. Before signing, the maintainer's script checks that the tag points at the exact commit they reviewed (so a moved tag is caught) and hashes the files there itself.
 - **Version check:** the release tag must look like a version number (`v1.3.0`) and must match `__version__` inside the downloaded code.
 - **All or nothing:** every file must download, match its checksum, and be valid Python before any file is replaced. Old versions are kept as `.bak` files.
 - **No downgrades:** an update is installed only if its version number is higher than the one running.

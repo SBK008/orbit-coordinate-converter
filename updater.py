@@ -16,7 +16,7 @@ How it works:
        and capped at MAX_DOWNLOAD_BYTES.
     6. Only then write them next to the running copy, keeping the old ones as
        .bak files, so a failed or tampered download never leaves a
-       half-updated app.
+       half-updated app. If writing fails partway, the old files are put back.
 
 To publish an update: raise __version__ in xyz_to_lla.py, merge it into main,
 and publish a GitHub release tagged with that version. The release workflow
@@ -28,11 +28,13 @@ are not overwritten here. pip_upgrade_command() gives the command to run.
 """
 
 import base64
+import contextlib
 import hashlib
 import importlib.metadata
 import json
 import os
 import re
+import shutil
 import ssl
 import sys
 import urllib.error
@@ -381,17 +383,49 @@ def install(current_version):
         raise UpdateError(f"Cannot write to {APP_DIR}. Move the app to a folder you own "
                           "(such as Documents) and try again.")
 
-    # Write every new file first (exact bytes, so they match the checksums),
-    # then swap them all in, keeping .bak copies
-    for name, data in files.items():
-        with open(os.path.join(APP_DIR, name + ".new"), "wb") as f:
-            f.write(data)
-    for name in files:
-        path = os.path.join(APP_DIR, name)
-        if os.path.exists(path):
-            os.replace(path, path + ".bak")
-        os.replace(path + ".new", path)
+    _swap_in(files)
     return latest
+
+
+def _swap_in(files):
+    """
+    Install {name: bytes} into APP_DIR, keeping .bak copies of the old files.
+    Every new file is written and every old one copied to .bak before any app
+    file changes. Each file is then replaced in one step (os.replace), so it is
+    never missing. If any step fails, the files already replaced are put back,
+    so the app is never left half old and half new.
+    """
+    paths = {name: os.path.join(APP_DIR, name) for name in files}
+    had_old = {name: os.path.exists(path) for name, path in paths.items()}
+    replaced = []
+    try:
+        # Exact bytes, so they match the checksums
+        for name, data in files.items():
+            with open(paths[name] + ".new", "wb") as f:
+                f.write(data)
+        for name, path in paths.items():
+            if had_old[name]:
+                shutil.copy2(path, path + ".bak")
+        for name, path in paths.items():
+            os.replace(path + ".new", path)
+            replaced.append(name)
+    except OSError as e:
+        rolled_back = True
+        for name in replaced:
+            path = paths[name]
+            try:
+                if had_old[name]:
+                    shutil.copy2(path + ".bak", path)
+                else:
+                    os.remove(path)
+            except OSError:
+                rolled_back = False
+        for path in paths.values():
+            with contextlib.suppress(OSError):
+                os.remove(path + ".new")
+        kept = ("The previous version was kept." if rolled_back else
+                f"Some files could not be put back. The old ones are the .bak files in {APP_DIR}.")
+        raise UpdateError(f"Could not install the update: {e}\n{kept}")
 
 
 def restart():

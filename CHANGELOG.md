@@ -4,6 +4,47 @@ What changed in each release, newest first. Release dates are on the
 [releases page](https://github.com/SBK008/orbit-coordinate-converter/releases).
 Versions follow [semantic versioning](https://semver.org).
 
+## Unreleased
+
+### Fixed
+- **NAIRAS output and leap seconds:** a UTC file that spans a leap second
+  (such as `2016-12-31T23:59:60`) used to be refused, because the leap second
+  was moved onto the next day's `00:00:00`. It is now written as second 60,
+  from UTC files and from other time systems alike.
+- Second 60 is now accepted only where a leap second can be: at 23:59, in UTC.
+  Times like `12:30:60.5`, and second 60 in TAI, TT or GPS, are refused with
+  the line number instead of being written out unchanged.
+- A CSV input that already has a `lat`, `lon` or `alt` column is refused with
+  a clear message. Those columns used to be silently replaced by the converted
+  values.
+- Converting again over an existing output keeps that file's permissions. A
+  private output used to become readable by everyone.
+- The app no longer sets the process umask to 0 for a moment at startup, which
+  could make files created at that moment by other threads (for example in a
+  program that imports `xyz_to_lla`) writable by everyone.
+- Very long output names (up to the system's limit) now work. The temporary
+  `.part` file next to them used to make the name too long.
+- File errors name the right file. An unreadable input used to be reported as
+  a problem writing the output, and errors such as a full disk ended the
+  command line with a Python traceback.
+- The desktop app's "(the limit you set)" note now uses the limit the
+  conversion ran with, even if the box was changed while it ran.
+- OEM numbers with underscores (like `7_000`) are refused, like any other text
+  that is not a number.
+- **Updater:** each app file is now replaced in one step, so it is never
+  missing, and if installing fails partway the old files are put back instead
+  of leaving a mix of old and new.
+
+### Security
+- `scripts/sign_release.sh` now needs the commit you reviewed and refuses to
+  sign unless the release tag on GitHub points at exactly that commit. Before,
+  someone who took over the GitHub account could move the tag and upload a
+  matching `SHA256SUMS`, and the script would have reported a match. The tag
+  is also fetched by its full name, so a branch with the same name can't
+  stand in for it.
+- The release workflow now runs on full releases only. GitHub pre-releases,
+  which the updater ignores, are no longer published to PyPI.
+
 ## 1.5.0
 
 ### Added

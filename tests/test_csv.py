@@ -173,20 +173,99 @@ def test_check_paths_catches_another_name_for_the_input(write, tmp_path):
 
 
 def test_output_permissions_follow_the_umask_without_changing_it(write, tmp_path, monkeypatch):
-    # The umask is read once at import. Reading it means briefly setting it to 0
-    # for the whole process, which must not happen while the app's update thread
-    # could be creating files.
+    # The umask used to be read by briefly setting it to 0 for the whole
+    # process, which made files other threads created in that moment
+    # world-writable. The output now gets the umask from the system instead.
     if os.name != "posix":
         pytest.skip("Unix file permissions")
     src = write("in.csv", "x,y,z\n6378137,0,0\n")
     out = tmp_path / "o.csv"
-    monkeypatch.setattr(conv, "_UMASK", 0o027)
-    calls = []
     real_umask = os.umask
-    monkeypatch.setattr(os, "umask", lambda m: calls.append(m) or real_umask(m))
-    conv.convert_csv(src, str(out), "x", "y", "z", 10, progress=lambda m: None)
+    old = real_umask(0o027)
+    calls = []
+    try:
+        monkeypatch.setattr(os, "umask", lambda m: calls.append(m) or real_umask(m))
+        conv.convert_csv(src, str(out), "x", "y", "z", 10, progress=lambda m: None)
+    finally:
+        real_umask(old)
     assert oct(out.stat().st_mode & 0o777) == oct(0o640)
     assert calls == []
+    assert not hasattr(conv, "_UMASK")
+
+
+def test_replaced_output_keeps_its_permissions(write, tmp_path):
+    # A private output used to become readable by everyone when converted again
+    if os.name != "posix":
+        pytest.skip("Unix file permissions")
+    src = write("in.csv", "x,y,z\n6378137,0,0\n")
+    out = tmp_path / "o.csv"
+    out.write_text("old")
+    out.chmod(0o600)
+    conv.convert_csv(src, str(out), "x", "y", "z", 10, progress=lambda m: None)
+    assert oct(out.stat().st_mode & 0o777) == oct(0o600)
+    assert "lat" in out.read_text()
+
+
+def test_long_output_name(write, tmp_path):
+    # A 254-character name is allowed, but the temporary ".<random>.part" name
+    # next to it used to be too long, so the conversion failed
+    src = write("in.csv", "x,y,z\n6378137,0,0\n")
+    out = tmp_path / ("a" * 250 + ".csv")
+    conv.convert_csv(src, str(out), "x", "y", "z", 10, progress=lambda m: None)
+    assert out.read_text().startswith("x,y,z,lat,lon,alt")
+    assert not [n for n in os.listdir(tmp_path) if n.endswith(".part")]
+
+
+@pytest.mark.parametrize("text", ["x,y,z,lat\n6378137,0,0,51.5\n", "x,y,z,alt\n"])
+def test_input_columns_named_like_the_output_are_refused(write, tmp_path, text):
+    # Their values used to be silently replaced by the converted ones
+    src = write("in.csv", text)
+    out = tmp_path / "o.csv"
+    with pytest.raises(conv.ConverterError, match="already has a column named"):
+        conv.convert_csv(src, str(out), "x", "y", "z", 10, progress=lambda m: None)
+    assert not out.exists()
+
+
+def test_columns_differing_only_in_case_are_kept(write, tmp_path):
+    src = write("in.csv", "x,y,z,LAT\n6378137,0,0,51.5\n")
+    out = tmp_path / "o.csv"
+    conv.convert_csv(src, str(out), "x", "y", "z", 10, progress=lambda m: None)
+    df = pd.read_csv(out)
+    assert list(df.columns) == ["x", "y", "z", "LAT", "lat", "lon", "alt"]
+    assert df["LAT"][0] == 51.5
+
+
+def test_os_error_messages_name_the_right_file(tmp_path):
+    src, out = str(tmp_path / "in.csv"), str(tmp_path / "out.csv")
+    e = PermissionError(13, "Permission denied", src)
+    assert conv.describe_os_error(e, src, out) == f"Could not read {src}: Permission denied."
+    e = FileNotFoundError(2, "No such file or directory", src)
+    assert "input file" in conv.describe_os_error(e, src, out)
+    e = PermissionError(13, "Permission denied", out + ".1234.part", out)
+    assert "close it and try again" in conv.describe_os_error(e, src, out)
+    e = OSError(28, "No space left on device")
+    assert conv.describe_os_error(e, src, out, name=os.path.basename) == \
+        "Could not write out.csv: No space left on device."
+
+
+def test_command_line_reports_os_errors_without_a_traceback(write, tmp_path):
+    import errno
+    import subprocess
+    import sys
+    # Fill the disk the moment the output is written
+    code = ("import sys, errno, xyz_to_lla as c\n"
+            "def full(*a, **k): raise OSError(errno.ENOSPC, 'No space left on device')\n"
+            "c.convert_csv = full\n"
+            "sys.argv = ['xyz_to_lla', sys.argv[1], sys.argv[2]]\n"
+            "c.main()\n")
+    src = write("in.csv", "x,y,z\n6378137,0,0\n")
+    out = str(tmp_path / "o.csv")
+    r = subprocess.run([sys.executable, "-c", code, src, out], capture_output=True, text=True,
+                       cwd=os.path.dirname(conv.__file__))
+    assert r.returncode == 1
+    assert "Traceback" not in r.stderr
+    assert f"Could not write {out}: No space left on device." in r.stderr
+    assert errno.ENOSPC
 
 
 def test_unknown_separator(write, tmp_path):

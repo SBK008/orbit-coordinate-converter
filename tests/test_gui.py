@@ -152,3 +152,30 @@ def test_bad_limit_is_refused_before_starting(app, tmp_path):
     app._start()
     assert app.worker is None
     assert "whole number" in app.messages_shown[-1]
+
+
+def test_limit_message_uses_the_limit_the_conversion_ran_with(app, tmp_path):
+    # The "(the limit you set)" note used to read the box when the run finished
+    src = tmp_path / "orbit.oem"
+    src.write_text(oem_text([({}, [f"2026-01-01T00:{i:02d}:00 6778.137 0 0" for i in range(10)])]))
+    app.input_path.set(str(src))
+    app.limit.set("3")
+    app._start()
+    app.limit.set("")                 # changed while converting
+    status = run(app)
+    assert status.startswith("Done. Wrote 3 points") and "the limit you set" in status
+
+
+def test_unreadable_input_is_reported_as_the_input(app, tmp_path, monkeypatch):
+    import xyz_to_lla as conv
+    src = tmp_path / "orbit.csv"
+    src.write_text("x,y,z\n6378137,0,0\n")
+
+    def unreadable(in_path, *a, **k):
+        raise PermissionError(13, "Permission denied", in_path)
+
+    monkeypatch.setattr(conv, "convert_csv", unreadable)
+    app.input_type.set("csv")
+    app.input_path.set(str(src))
+    assert run(app) == "Conversion failed."
+    assert app.messages_shown[-1] == "Could not read orbit.csv: Permission denied."

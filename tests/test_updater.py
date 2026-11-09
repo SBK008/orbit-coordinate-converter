@@ -130,6 +130,43 @@ def test_install_replaces_files_and_keeps_backups(github):
     assert not [n for n in os.listdir(app) if n.endswith(".new")]
 
 
+def test_failed_install_puts_the_old_files_back(github, monkeypatch):
+    # A failure partway through used to leave some files new and some old, with
+    # .new files lying around and a raw OSError instead of a readable message
+    app = github.app
+    real_replace = os.replace
+
+    def replace(src, dst):
+        if os.path.basename(dst) == updater.UPDATE_FILES[1]:
+            raise PermissionError(13, "Permission denied", dst)
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", replace)
+    with pytest.raises(updater.UpdateError, match="previous version was kept"):
+        updater.install("1.2.0")
+    assert (app / "xyz_to_lla.py").read_bytes() == OLD
+    for name in updater.UPDATE_FILES[1:]:
+        assert (app / name).read_bytes() == f"# old {name}\n".encode()
+    assert not [n for n in os.listdir(app) if n.endswith(".new")]
+
+
+def test_app_files_are_never_missing_during_install(github, monkeypatch):
+    # Moving each old file to .bak before moving the new one in left a moment
+    # with no file at all. Now every replace overwrites the file in one step.
+    app = github.app
+    real_replace = os.replace
+    missing = []
+
+    def replace(src, dst):
+        missing.extend(n for n in updater.UPDATE_FILES if not (app / n).exists())
+        real_replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", replace)
+    updater.install("1.2.0")
+    assert missing == []
+    assert (app / "xyz_to_lla.py.bak").read_bytes() == OLD
+
+
 def test_files_come_from_the_release_tag_not_main(github):
     updater.install("1.2.0")
     raw = [urlparse(u) for u in github.fetched

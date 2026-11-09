@@ -1,4 +1,4 @@
-# Runs when a GitHub release is published:
+# Runs when a GitHub release is published (pre-releases are skipped):
 #   1. Checks that the tagged commit is on main and that the tag matches
 #      __version__ in xyz_to_lla.py, then hashes the updater's files into
 #      SHA256SUMS and builds the PyPI packages.
@@ -12,9 +12,12 @@
 # touches GitHub.
 name: release
 
+# "released" (not "published") skips pre-releases, which the in-app updater
+# also ignores, so PyPI never gets a version the updater won't offer. It also
+# runs when a pre-release is later changed to a full release.
 on:
   release:
-    types: [published]
+    types: [released]
 
 # Nothing by default. Each job asks only for what it needs.
 permissions: {}
